@@ -1,0 +1,17 @@
+node_modules
+backend/node_modules
+dist
+.git
+.env
+backend/.env
+*.sqlite
+*.db
+uploads/
+backend/uploads/
+backend/dump-tasks.js
+backend/force-ai.js
+backend/revert-ai.js
+backend/test-*.js
+alter_db.cjs
+test-db.js
+README.md
