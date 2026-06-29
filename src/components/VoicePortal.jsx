@@ -241,6 +241,7 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
             if (actionType === 'cancel' || actionType === 'delete') {
               const res = await fetch(`/api/tasks/${taskId}`, {
                 method: 'DELETE',
+                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ reason: finalCommandText })
               });
@@ -257,6 +258,7 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
               // postpone / prepone / modify
               const res = await fetch(`/api/tasks/${taskId}/modify`, {
                 method: 'PUT',
+                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ ...updatedFields, reason: finalCommandText })
               });
@@ -288,9 +290,17 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
           };
           const res = await fetch('/api/assistant', {
             method: 'POST',
+            credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text: finalCommandText, context })
           });
+          if (!res.ok) {
+            const errBody = await res.text().catch(() => res.status);
+            console.error('[Laila] /api/assistant error:', res.status, errBody);
+            setStatus(`Error ${res.status}: ${res.status === 401 ? 'Session expired. Please re-login.' : 'Server error'}`);
+            setTimeout(() => { resetPortal(); }, 3000);
+            return;
+          }
           if (res.ok) {
             const data = await res.json();
             const { action, params, speechResponse } = data;
@@ -370,6 +380,7 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
                 }
                 const modifyRes = await fetch(`/api/tasks/${params.taskId}/modify`, {
                   method: 'PUT',
+                  credentials: 'include',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
                     title: params.title,
@@ -398,6 +409,7 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
               try {
                 const deleteRes = await fetch(`/api/tasks/${params.taskId}`, {
                   method: 'DELETE',
+                  credentials: 'include',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ reason: params.reason || 'Requested via voice' })
                 });
