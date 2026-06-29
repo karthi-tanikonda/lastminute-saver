@@ -1,4 +1,5 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Groq = require('groq-sdk');
 
 async function processAssistantMessage(text, userProfile, activeTasks = [], completedTasks = [], context = null) {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -18,7 +19,7 @@ async function processAssistantMessage(text, userProfile, activeTasks = [], comp
       'gemini-2.5-flash',
       'gemini-2.5-flash-lite',
       'gemini-2.0-flash',
-      'gemini-1.5-flash'
+      'gemini-1.5-flash-latest'
     ];
 
     let result = null;
@@ -126,7 +127,7 @@ Provide your output strictly in JSON format with this structure:
         break; // Successfully got response
       } catch (err) {
         lastError = err;
-        if (err.status === 429 || err.status === 503) {
+        if (err.status === 429 || err.status === 503 || err.status === 404) {
           console.warn(`Model ${modelName} hit error (${err.status}), trying next fallback...`);
           continue;
         }
@@ -134,8 +135,33 @@ Provide your output strictly in JSON format with this structure:
       }
     }
 
+    // If all Gemini models failed, try Groq as ultimate fallback
     if (!result) {
-      throw lastError || new Error("All fallback models failed.");
+      const groqKey = process.env.GROQ_API_KEY;
+      if (groqKey) {
+        console.warn('[Assistant] All Gemini models failed. Trying Groq fallback...');
+        try {
+          const groq = new Groq({ apiKey: groqKey });
+          const prompt = `User speech input: "${text}"\n\nGenerate JSON response:`;
+          const groqResult = await groq.chat.completions.create({
+            model: 'llama3-8b-8192',
+            messages: [
+              { role: 'system', content: systemInstruction },
+              { role: 'user', content: prompt }
+            ],
+            response_format: { type: 'json_object' },
+            temperature: 0.3,
+            max_tokens: 512
+          });
+          const groqText = groqResult.choices[0]?.message?.content || '{}';
+          console.log(`[Assistant] Groq fallback output: ${groqText}`);
+          return JSON.parse(groqText);
+        } catch (groqErr) {
+          console.error('[Assistant] Groq fallback also failed:', groqErr.message);
+          throw lastError || groqErr;
+        }
+      }
+      throw lastError || new Error('All fallback models failed.');
     }
 
     const responseText = result.response.text();
