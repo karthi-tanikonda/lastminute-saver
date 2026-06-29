@@ -99,7 +99,7 @@ export default function IntegrationCards({ userProfile, setUserProfile, logNotif
     if (id === 'gcal') {
       if (!item.connected) {
         // Redirect to real Google Auth callback
-        window.location.href = 'http://localhost:5000/api/auth/google';
+        window.location.href = '/api/auth/google';
       } else {
         disconnectOAuth(id);
       }
@@ -406,7 +406,7 @@ export default function IntegrationCards({ userProfile, setUserProfile, logNotif
                 </p>
                 <div className="flex flex-col gap-3">
                   <a
-                    href="http://localhost:5000/api/auth/notion"
+                    href="/api/auth/notion"
                     onClick={() => setModalTarget(null)}
                     className="w-full bg-[#7C3AED] hover:bg-[#7C3AED]/90 text-white font-bold py-3.5 px-4 rounded-xl text-xs transition-all cursor-pointer text-center block shadow-lg shadow-[#7C3AED]/15 hover:scale-[1.02] animate-pulse-slow"
                   >
