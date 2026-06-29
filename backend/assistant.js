@@ -16,10 +16,11 @@ async function processAssistantMessage(text, userProfile, activeTasks = [], comp
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
     const fallbackModels = [
+      'gemini-3.5-flash',
+      'gemini-3.1-flash-lite',
       'gemini-2.5-flash',
       'gemini-2.5-flash-lite',
-      'gemini-2.0-flash',
-      'gemini-1.5-flash-latest'
+      'gemini-2.0-flash'
     ];
 
     let result = null;
@@ -144,7 +145,7 @@ Provide your output strictly in JSON format with this structure:
           const groq = new Groq({ apiKey: groqKey });
           const prompt = `User speech input: "${text}"\n\nGenerate JSON response:`;
           const groqResult = await groq.chat.completions.create({
-            model: 'llama3-8b-8192',
+            model: 'llama-3.1-8b-instant',
             messages: [
               { role: 'system', content: systemInstruction },
               { role: 'user', content: prompt }
