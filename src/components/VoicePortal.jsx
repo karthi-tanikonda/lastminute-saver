@@ -150,6 +150,20 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
     setStatus('Voice system idle');
   }, [setIsVoiceActive]);
 
+  // When draft review opens, wait for Laila to finish speaking then restart mic
+  useEffect(() => {
+    if (!isReviewing || !isVoiceActive) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      if (!cancelled && isReviewingRef.current) {
+        setTranscript('');
+        setStatus('Listening... Speak now.');
+        setListenTrigger(t => t + 1);
+      }
+    }, 3500); // 3.5s covers even long TTS confirmation phrases
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [isReviewing, isVoiceActive]);
+
   useEffect(() => {
     if (!isVoiceActive) return;
 
@@ -329,16 +343,9 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
               setSyncEmail(Boolean(userProfile.emailEnabled && userProfile.isEmailVerified));
 
               setIsReviewing(true);
-              speakTaskCaptured(params.title, userProfile, false, () => {
-                // After Laila finishes speaking, force a fresh recognition instance
-                // (Chrome cannot restart an already-ended SpeechRecognition)
-                setTimeout(() => {
-                  if (isReviewingRef.current) {
-                    setStatus('Listening... Speak now.');
-                    setListenTrigger(t => t + 1);
-                  }
-                }, 1200);
-              });
+              // Status updates — mic will auto-restart via the isReviewing useEffect
+              setStatus('Processing...');
+              speakTaskCaptured(params.title, userProfile, false);
             } else if (action === 'update_draft') {
               if (params.title) setEditTitle(params.title);
               if (params.targetTimeISO) {
