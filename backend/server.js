@@ -114,6 +114,9 @@ startTelegramBotPolling();
 
 const app = express();
 
+// Trust reverse proxy (Google Cloud Run load balancer) for secure cookies & HTTPS detection
+app.set('trust proxy', 1);
+
 const isProduction = process.env.NODE_ENV === 'production';
 
 // Base URLs — dynamically set so OAuth works in both dev and production
@@ -138,8 +141,10 @@ app.use(session({
   secret: process.env.SESSION_SECRET || 'lastminute_saver_super_secret_cookie_key',
   resave: false,
   saveUninitialized: false,
+  proxy: true,
   cookie: {
     secure: isProduction, // Use HTTPS in production (Cloud Run always uses HTTPS)
+    sameSite: isProduction ? 'lax' : 'lax',
     maxAge: 24 * 60 * 60 * 1000 // 1 day
   }
 }));
