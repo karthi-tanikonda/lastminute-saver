@@ -10,6 +10,7 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
   const [status, setStatus] = useState('Voice system idle');
   const [transcript, setTranscript] = useState('');
   const [micPermission, setMicPermission] = useState(null);
+  const [listenTrigger, setListenTrigger] = useState(0); // incremented to force-restart recognition
   
   // Review/Edit states
   const [isReviewing, setIsReviewing] = useState(false);
@@ -152,7 +153,8 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
   useEffect(() => {
     if (!isVoiceActive) return;
 
-    setIsReviewing(false);
+    // Only reset draft review when Laila is freshly activated (not on mid-session mic restarts)
+    if (listenTrigger === 0) setIsReviewing(false);
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       setStatus('Speech Recognition not supported.');
@@ -328,12 +330,14 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
 
               setIsReviewing(true);
               speakTaskCaptured(params.title, userProfile, false, () => {
-                // Restart mic after speaking so user can modify the draft via voice
+                // After Laila finishes speaking, force a fresh recognition instance
+                // (Chrome cannot restart an already-ended SpeechRecognition)
                 setTimeout(() => {
-                  if (recognitionRef.current) {
-                    try { recognitionRef.current.start(); } catch(e) {}
+                  if (isReviewingRef.current) {
+                    setStatus('Listening... Speak now.');
+                    setListenTrigger(t => t + 1);
                   }
-                }, 600);
+                }, 1200);
               });
             } else if (action === 'update_draft') {
               if (params.title) setEditTitle(params.title);
@@ -490,7 +494,7 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
         try { recognitionRef.current.stop(); } catch (err) {}
       }
     };
-  }, [isVoiceActive, selectedLang]);
+  }, [isVoiceActive, selectedLang, listenTrigger]);
 
   useEffect(() => {
     if (!isVoiceActive) return;
