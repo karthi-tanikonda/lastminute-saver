@@ -489,9 +489,7 @@ app.post('/api/auth/login', (req, res) => {
 app.get('/api/auth/google', (req, res, next) => {
   if (googleClientId && googleClientSecret && googleClientSecret !== 'YOUR_GOOGLE_CLIENT_SECRET_HERE') {
     passport.authenticate('google', { 
-      scope: ['profile', 'email', 'https://www.googleapis.com/auth/calendar.events'],
-      accessType: 'offline',
-      prompt: 'consent'
+      scope: ['profile', 'email']
     })(req, res, next);
   } else {
     // Simulated Google OAuth Flow for testing if keys are missing
