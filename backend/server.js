@@ -117,7 +117,10 @@ const app = express();
 // Trust reverse proxy (Google Cloud Run load balancer) for secure cookies & HTTPS detection
 app.set('trust proxy', 1);
 
-const isProduction = process.env.NODE_ENV === 'production';
+// Detect production: explicit NODE_ENV, or running on Cloud Run / .run.app domain
+const isProduction = process.env.NODE_ENV === 'production' ||
+  !!(process.env.K_SERVICE) || // Cloud Run always sets K_SERVICE
+  !!(process.env.SERVICE_URL && process.env.SERVICE_URL.includes('run.app'));
 
 // Base URLs — dynamically set so OAuth works in both dev and production
 const BASE_URL = isProduction
