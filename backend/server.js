@@ -116,11 +116,17 @@ const app = express();
 
 const isProduction = process.env.NODE_ENV === 'production';
 
+// Base URLs — dynamically set so OAuth works in both dev and production
+const BASE_URL = isProduction
+  ? (process.env.SERVICE_URL || 'https://lastminute-saver-296757658417.asia-south1.run.app')
+  : 'http://localhost:5000';
+const FRONTEND_URL = isProduction ? BASE_URL : 'http://localhost:5173';
+
 // In production the frontend is served from the same origin, so CORS is not needed.
 // In dev, allow the Vite dev server.
 if (!isProduction) {
   app.use(cors({
-    origin: 'http://localhost:5173',
+    origin: FRONTEND_URL,
     credentials: true
   }));
 }
@@ -151,7 +157,7 @@ if (googleClientId && googleClientSecret && googleClientSecret !== 'YOUR_GOOGLE_
   passport.use(new GoogleStrategy({
     clientID: googleClientId,
     clientSecret: googleClientSecret,
-    callbackURL: 'http://localhost:5000/api/auth/google/callback',
+    callbackURL: `${BASE_URL}/api/auth/google/callback`,
     proxy: true
   }, (accessToken, refreshToken, profile, done) => {
     const email = profile.emails && profile.emails[0] ? profile.emails[0].value : '';
@@ -497,7 +503,7 @@ app.get('/api/auth/google', (req, res, next) => {
         
         req.login(user, (loginErr) => {
           if (loginErr) return res.status(500).json({ error: loginErr.message });
-          res.redirect('http://localhost:5173/dashboard');
+          res.redirect(`${FRONTEND_URL}/dashboard`);
         });
       });
     });
@@ -506,9 +512,9 @@ app.get('/api/auth/google', (req, res, next) => {
 
 // Google OAuth callback
 app.get('/api/auth/google/callback', 
-  passport.authenticate('google', { failureRedirect: 'http://localhost:5173/auth' }),
-  (req, res) => {
-    res.redirect('http://localhost:5173/dashboard');
+  passport.authenticate('google', { failureRedirect: `${FRONTEND_URL}/auth` }),
+  async (req, res) => {
+    res.redirect(`${FRONTEND_URL}/dashboard`);
   }
 );
 
@@ -636,7 +642,7 @@ app.get('/api/auth/notion', (req, res) => {
   // Store user ID in session to retrieve on callback redirect
   req.session.notionUserId = req.user.id;
 
-  const authUrl = `https://api.notion.com/v1/oauth/authorize?client_id=${clientId}&response_type=code&owner=user&redirect_uri=http://localhost:5000/api/auth/notion/callback`;
+  const authUrl = `https://api.notion.com/v1/oauth/authorize?client_id=${clientId}&response_type=code&owner=user&redirect_uri=${BASE_URL}/api/auth/notion/callback`;
   res.redirect(authUrl);
 });
 
@@ -645,7 +651,7 @@ app.get('/api/auth/notion/callback', async (req, res) => {
   const userId = req.session.notionUserId || (req.user && req.user.id);
 
   if (!code) {
-    return res.redirect('http://localhost:5173/dashboard?notion_error=missing_code');
+    return res.redirect(`${FRONTEND_URL}/dashboard?notion_error=missing_code`);
   }
 
   if (!userId) {
@@ -654,7 +660,7 @@ app.get('/api/auth/notion/callback', async (req, res) => {
 
   const clientId = process.env.NOTION_CLIENT_ID;
   const clientSecret = process.env.NOTION_CLIENT_SECRET;
-  const redirectUri = 'http://localhost:5000/api/auth/notion/callback';
+  const redirectUri = `${BASE_URL}/api/auth/notion/callback`;
 
   try {
     // Exchange Auth Code for Access Token
@@ -674,7 +680,7 @@ app.get('/api/auth/notion/callback', async (req, res) => {
     if (!tokenResponse.ok) {
       const errText = await tokenResponse.text();
       console.error('[Notion OAuth] Token exchange failed:', errText);
-      return res.redirect('http://localhost:5173/dashboard?notion_error=token_failed');
+      return res.redirect(`${FRONTEND_URL}/dashboard?notion_error=token_failed`);
     }
 
     const tokenData = await tokenResponse.json();
@@ -695,15 +701,15 @@ app.get('/api/auth/notion/callback', async (req, res) => {
       (err) => {
         if (err) {
           console.error('[Notion OAuth] Database update failed:', err.message);
-          return res.redirect('http://localhost:5173/dashboard?notion_error=db_failed');
+          return res.redirect(`${FRONTEND_URL}/dashboard?notion_error=db_failed`);
         }
-        res.redirect('http://localhost:5173/dashboard?notion_success=true');
+        res.redirect(`${FRONTEND_URL}/dashboard?notion_success=true`);
       }
     );
 
   } catch (err) {
     console.error('[Notion OAuth] Callback handler crashed:', err.message);
-    res.redirect('http://localhost:5173/dashboard?notion_error=server_error');
+    res.redirect(`${FRONTEND_URL}/dashboard?notion_error=server_error`);
   }
 });
 
