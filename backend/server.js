@@ -1172,7 +1172,9 @@ if (isProduction) {
   const frontendPath = path.join(__dirname, '..', 'dist');
   app.use(express.static(frontendPath));
   // React Router catch-all: serve index.html for any non-API route
-  app.get('(.*)', (req, res) => {
+  // Use app.use (no path) to serve React for ALL non-API routes.
+  // This avoids path-to-regexp wildcard syntax issues entirely.
+  app.use((req, res) => {
     res.sendFile(path.join(frontendPath, 'index.html'));
   });
 }
