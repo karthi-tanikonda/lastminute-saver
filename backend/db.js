@@ -170,6 +170,11 @@ const db = new sqlite3.Database(dbPath, (err) => {
       db.run("ALTER TABLE users ADD COLUMN smsEnabled BOOLEAN DEFAULT 0", (err) => {
         // Ignored if column already exists
       });
+
+      // Signal that all tables are ready — server.js waits for this before querying
+      db.get("SELECT 1", () => {
+        db.emit('ready');
+      });
     });
   }
 });

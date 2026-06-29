@@ -217,29 +217,33 @@ function hashPassword(password) {
   return crypto.createHash('sha256').update(password).digest('hex');
 }
 
-// Initialize VAPID details for Web Push
+// Initialize VAPID details for Web Push — wait for DB tables to be ready first
 let vapidKeys = null;
-db.get("SELECT value FROM settings WHERE key = 'vapid_keys'", (err, row) => {
-  if (!err && row && row.value) {
-    vapidKeys = JSON.parse(row.value);
-    webpush.setVapidDetails(
-      'mailto:admin@lastminutesaver.io',
-      vapidKeys.publicKey,
-      vapidKeys.privateKey
-    );
-    console.log("VAPID Keys loaded successfully.");
-  } else {
-    const keys = webpush.generateVAPIDKeys();
-    vapidKeys = keys;
-    db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('vapid_keys', ?)", [JSON.stringify(keys)]);
-    webpush.setVapidDetails(
-      'mailto:admin@lastminutesaver.io',
-      keys.publicKey,
-      keys.privateKey
-    );
-    console.log("VAPID Keys generated and saved.");
-  }
-  initTaskTimers();
+db.once('ready', () => {
+  db.get("SELECT value FROM settings WHERE key = 'vapid_keys'", (err, row) => {
+    if (!err && row && row.value) {
+      vapidKeys = JSON.parse(row.value);
+      webpush.setVapidDetails(
+        'mailto:admin@lastminutesaver.io',
+        vapidKeys.publicKey,
+        vapidKeys.privateKey
+      );
+      console.log("VAPID Keys loaded successfully.");
+    } else {
+      const keys = webpush.generateVAPIDKeys();
+      vapidKeys = keys;
+      db.run("INSERT OR REPLACE INTO settings (key, value) VALUES ('vapid_keys', ?)", [JSON.stringify(keys)], (saveErr) => {
+        if (saveErr) console.error("Could not save VAPID keys:", saveErr.message);
+      });
+      webpush.setVapidDetails(
+        'mailto:admin@lastminutesaver.io',
+        keys.publicKey,
+        keys.privateKey
+      );
+      console.log("VAPID Keys generated and saved.");
+    }
+    initTaskTimers();
+  });
 });
 
 // Cache for server side setTimeouts
