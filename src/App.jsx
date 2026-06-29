@@ -252,40 +252,40 @@ function Dashboard() {
       try {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         recognition = new SpeechRecognition();
-        recognition.continuous = true;
+        recognition.continuous = false;
         recognition.interimResults = true;
-        recognition.lang = 'en-US';
+        recognition.lang = 'en-IN'; // Optimized for regional accent detection
 
         recognition.onresult = (event) => {
-          let final = '';
-          let interim = '';
+          let text = '';
           for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) {
-              final += event.results[i][0].transcript;
-            } else {
-              interim += event.results[i][0].transcript;
-            }
+            text += event.results[i][0].transcript;
           }
-          const text = (final + ' ' + interim).toLowerCase();
-          setLastHeard(text);
+          const lowerText = text.toLowerCase();
+          setLastHeard(lowerText);
           
-          const wakeWords = ['hey laila', 'hey, laila', 'hay laila', 'hey layla', 'hey lila', 'hey leila', 'a laila', 'he laila', 'hello laila', 'ok laila', 'laila', 'layla', 'lila', 'leela', 'hello layla', 'hello lila', 'hello leela', 'ok layla', 'ok lila', 'ok leela', 'hey leela'];
-          if (wakeWords.some(w => text.includes(w))) {
+          const wakeWords = [
+            'hey laila', 'hey, laila', 'hay laila', 'hey layla', 'hey lila', 'hey leila', 
+            'a laila', 'he laila', 'hello laila', 'ok laila', 'hi laila', 'laila', 'layla', 
+            'lila', 'leela', 'hello layla', 'hello lila', 'hello leela', 'ok layla', 'ok lila', 
+            'ok leela', 'hey leela', 'hey assistant', 'open laila', 'activate laila', 'laila wake up'
+          ];
+          if (wakeWords.some(w => lowerText.includes(w))) {
             playClick();
             setIsVoiceActive(true);
-            try { recognition.stop(); } catch (e) {}
+            try { recognition.abort(); } catch (e) {}
           }
         };
 
         recognition.onerror = (e) => {
-          if (e.error !== 'no-speech') {
+          if (e.error !== 'no-speech' && e.error !== 'aborted') {
             setLastHeard(`Error: ${e.error}`);
           }
         };
 
         recognition.onend = () => {
           if (!isUnmounted && !isVoiceActive) {
-            restartTimer = setTimeout(startRecognition, 1000); // 1s delay to let mic unlock
+            restartTimer = setTimeout(startRecognition, 600);
           }
         };
 
@@ -293,19 +293,18 @@ function Dashboard() {
       } catch (err) {
         setLastHeard(`Mic Retry: ${err.message}`);
         if (!isUnmounted && !isVoiceActive) {
-          restartTimer = setTimeout(startRecognition, 2000); // Backoff
+          restartTimer = setTimeout(startRecognition, 1500);
         }
       }
     };
 
-    // Delay start slightly to let VoicePortal fully release the mic
-    restartTimer = setTimeout(startRecognition, 500);
+    restartTimer = setTimeout(startRecognition, 400);
 
     return () => {
       isUnmounted = true;
       if (restartTimer) clearTimeout(restartTimer);
       if (recognition) {
-        try { recognition.onend = null; recognition.stop(); } catch (e) {}
+        try { recognition.onend = null; recognition.abort(); } catch (e) {}
       }
     };
   }, [isVoiceActive, hasInteracted]);

@@ -161,7 +161,7 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
     }
 
     const rec = new SpeechRecognition();
-    rec.continuous = true;
+    rec.continuous = false; // Discrete command mode: auto-detects end of sentence
     rec.interimResults = true;
     rec.lang = selectedLang;
 
@@ -172,21 +172,12 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
       setTranscript('');
       transcriptRef.current = '';
       
-      if (streamRef.current && (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive')) {
-        audioChunksRef.current = [];
-        mediaRecorderRef.current = new MediaRecorder(streamRef.current);
-        mediaRecorderRef.current.ondataavailable = e => {
-          if (e.data.size > 0) audioChunksRef.current.push(e.data);
-        };
-        mediaRecorderRef.current.start();
-      }
-
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = setTimeout(() => {
         if (!transcriptRef.current.trim()) {
           try { rec.stop(); } catch (err) {}
         }
-      }, 6000);
+      }, 7000);
     };
 
     rec.onresult = (e) => {
@@ -200,15 +191,10 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
         }
       }
       
-      const result = final || interim;
+      const result = (final || interim).trim();
       if (result) {
         setTranscript(result);
         transcriptRef.current = result;
-
-        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-        silenceTimerRef.current = setTimeout(() => {
-          try { rec.stop(); } catch (err) {}
-        }, 2200);
       }
     };
 
@@ -220,7 +206,7 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
       } else if (e.error === 'no-speech') {
         setStatus('No speech detected.');
       } else if (e.error === 'aborted') {
-        // Fired when rec.stop() is called programmatically (silence timer) — not a real error, ignore it.
+        // Ignored
       } else {
         setStatus(`Error: ${e.error}`);
       }
@@ -231,56 +217,15 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
       window.dispatchEvent(new Event('laila_mic_state'));
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       
-      let finalCommandText = transcriptRef.current.trim();
-      let hasAudioChunks = false;
-
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-        try {
-          mediaRecorderRef.current.stop();
-          await Promise.race([
-            new Promise(resolve => { mediaRecorderRef.current.onstop = resolve; }),
-            new Promise(resolve => setTimeout(resolve, 500))
-          ]);
-        } catch (mrErr) {
-          console.warn("MediaRecorder stop error:", mrErr);
-        }
-        hasAudioChunks = audioChunksRef.current.length > 0;
-      }
-
-      if (hasAudioChunks) {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        const formData = new FormData();
-        formData.append('audio', audioBlob, 'speech.webm');
-        
-        try {
-          const whisperRes = await fetch('/api/transcribe', { method: 'POST', body: formData });
-          if (whisperRes.ok) {
-            const whisperData = await whisperRes.json();
-            const wText = whisperData.text ? whisperData.text.trim() : '';
-            const lowerW = wText.toLowerCase().replace(/[^a-z ]/g, '');
-            const hallucinations = ['you', 'thank you', 'they may', 'to', 'and then', 'okay', 'ok', 'yeah'];
-            const isHallucination = hallucinations.includes(lowerW);
-
-            if (isHallucination && transcriptRef.current.trim()) {
-              finalCommandText = transcriptRef.current.trim();
-            } else if (!isHallucination && wText) {
-              finalCommandText = wText;
-            } else if (!wText && transcriptRef.current.trim()) {
-              finalCommandText = transcriptRef.current.trim();
-            } else {
-              finalCommandText = '';
-            }
-          }
-        } catch (err) {
-          console.error('Whisper transcription failed', err);
-        }
-      }
+      const finalCommandText = transcriptRef.current.trim();
 
       if (finalCommandText) {
         const lowerText = finalCommandText.toLowerCase();
-        const exitPhrases = ['thank you', 'thanks laila', 'bye', 'goodbye', 'stop listening'];
+        const exitPhrases = ['thank you', 'thanks laila', 'thankyou', 'thank you laila', 'bye', 'goodbye', 'stop listening', 'exit', 'close'];
         if (exitPhrases.some(p => lowerText.includes(p))) {
-           resetPortal();
+           speakText(`You're welcome, ${userProfile.gender === 'Female' ? 'Madam' : 'Sir'}! Have a great day.`, userProfile, () => {
+             resetPortal();
+           });
            return;
         }
 
@@ -359,25 +304,20 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
                 if (targetTime > now) finalDuration = Math.floor((targetTime - now) / 1000);
               }
               setEditDuration(finalDuration);
-              setEditPriority(params.priority || 'Medium');
-              setEditCategory(params.category || 'Personal');
-              if (params.isRecurring !== undefined) setEditIsRecurring(params.isRecurring);
+              if (params.priority) setEditPriority(params.priority);
+              if (params.category) setEditCategory(params.category);
+              if (params.isRecurring !== undefined) setEditIsRecurring(Boolean(params.isRecurring));
               if (params.recurInterval !== undefined) setEditRecurInterval(params.recurInterval);
               if (params.recurUnit !== undefined) setEditRecurUnit(params.recurUnit);
-              if (params.aiEnabled !== undefined) setEditAiEnabled(params.aiEnabled);
+              if (params.aiEnabled !== undefined) setEditAiEnabled(Boolean(params.aiEnabled));
               
-              const future = new Date(Date.now() + finalDuration * 1000);
-              const tzoffset = future.getTimezoneOffset() * 60000;
-              setEditDateTime(new Date(future.getTime() - tzoffset).toISOString().slice(0, 16));
-
               setSyncGoogle(Boolean(userProfile.googleConnected));
               setSyncNotion(Boolean(userProfile.notionConnected));
               setSyncTelegram(Boolean(userProfile.telegramEnabled));
-              setSyncEmail(Boolean(userProfile.emailEnabled));
+              setSyncEmail(Boolean(userProfile.emailEnabled && userProfile.isEmailVerified));
 
               setIsReviewing(true);
-              setStatus('Listening for draft modifications...');
-              speakText(speechResponse, userProfile, () => { try { rec.start(); } catch (err) {} });
+              speakTaskCaptured(params.title, userProfile);
             } else if (action === 'update_draft') {
               if (params.title) setEditTitle(params.title);
               if (params.targetTimeISO) {
@@ -386,15 +326,9 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
                 if (targetTime > now) {
                   const finalDur = Math.floor((targetTime - now) / 1000);
                   setEditDuration(finalDur);
-                  const future = new Date(Date.now() + finalDur * 1000);
-                  const tzoffset = future.getTimezoneOffset() * 60000;
-                  setEditDateTime(new Date(future.getTime() - tzoffset).toISOString().slice(0, 16));
                 }
               } else if (params.durationSeconds) {
                 setEditDuration(params.durationSeconds);
-                const future = new Date(Date.now() + params.durationSeconds * 1000);
-                const tzoffset = future.getTimezoneOffset() * 60000;
-                setEditDateTime(new Date(future.getTime() - tzoffset).toISOString().slice(0, 16));
               }
               if (params.priority) setEditPriority(params.priority);
               if (params.category) setEditCategory(params.category);
@@ -514,12 +448,12 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
           setTimeout(() => { resetPortal(); }, 2000);
         }
       } else {
-        setStatus('Listening...');
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-          mediaRecorderRef.current.onstop = null;
-          mediaRecorderRef.current.stop();
-        }
-        setTimeout(() => { try { rec.start(); } catch (err) {} }, 300);
+        setStatus('Listening... Speak now.');
+        setTimeout(() => {
+          if (window.isLailaListening === false && recognitionRef.current) {
+            try { rec.start(); } catch (err) {}
+          }
+        }, 400);
       }
     };
     recognitionRef.current = rec;
