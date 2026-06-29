@@ -6,7 +6,7 @@ import { speakTaskCaptured, speakText } from '../utils/speechSynth';
 import lailaLogo from '../assets/laila_logo.png';
 import CustomSelect from './CustomSelect';
 
-export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask, userProfile, onRefreshTasks, mode = 'dashboard', contextDate }) {
+export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask, userProfile, onRefreshTasks, toggleTheme, mode = 'dashboard', contextDate }) {
   const [status, setStatus] = useState('Voice system idle');
   const [transcript, setTranscript] = useState('');
   const [micPermission, setMicPermission] = useState(null);
@@ -327,7 +327,14 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
               setSyncEmail(Boolean(userProfile.emailEnabled && userProfile.isEmailVerified));
 
               setIsReviewing(true);
-              speakTaskCaptured(params.title, userProfile);
+              speakTaskCaptured(params.title, userProfile, false, () => {
+                // Restart mic after speaking so user can modify the draft via voice
+                setTimeout(() => {
+                  if (recognitionRef.current) {
+                    try { recognitionRef.current.start(); } catch(e) {}
+                  }
+                }, 600);
+              });
             } else if (action === 'update_draft') {
               if (params.title) setEditTitle(params.title);
               if (params.targetTimeISO) {
@@ -370,6 +377,9 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
             } else if (action === 'navigate') {
               speakText(speechResponse, userProfile, () => { try { rec.start(); } catch (err) {} });
               window.dispatchEvent(new CustomEvent('laila_navigate', { detail: params.destination }));
+            } else if (action === 'toggle_theme') {
+              if (toggleTheme) toggleTheme();
+              speakText(speechResponse, userProfile, () => { try { rec.start(); } catch (err) {} });
             } else if (action === 'modify_existing_task') {
               try {
                 let finalDuration = params.durationSeconds;

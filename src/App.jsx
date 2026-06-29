@@ -225,10 +225,13 @@ function Dashboard() {
     const handleLailaNavigate = (e) => {
       const dest = e.detail;
       if (dest === 'notifications') setIsNotificationOpen(true);
-      else if (dest === 'history') { setIsNotificationOpen(true); } 
+      else if (dest === 'history') setActiveFilter('history');
       else if (dest === 'calendar') setActiveFilter('calendar');
       else if (dest === 'ai_workspace' || dest === 'ai_chat' || dest === 'ai_mode') setActiveFilter('ai-mode');
       else if (dest === 'dashboard' || dest === 'all') setActiveFilter('all');
+      else if (dest === 'analytics') setActiveFilter('analytics');
+      else if (dest === 'recurring') setActiveFilter('recurring');
+      else if (dest === 'rescheduled') setActiveFilter('rescheduled');
     };
     window.addEventListener('laila_navigate', handleLailaNavigate);
     return () => window.removeEventListener('laila_navigate', handleLailaNavigate);
@@ -1139,6 +1142,7 @@ function Dashboard() {
                 onAddTask={handleAddTask}
                 userProfile={userProfile}
                 onRefreshTasks={fetchTasksData}
+                toggleTheme={toggleTheme}
                 mode="dashboard"
                 contextDate={voiceContextDate}
               />
@@ -1193,6 +1197,7 @@ function Dashboard() {
                 onAddTask={handleAddTask}
                 userProfile={userProfile}
                 onRefreshTasks={fetchTasksData}
+                toggleTheme={toggleTheme}
                 mode="dashboard"
                 contextDate={voiceContextDate}
               />

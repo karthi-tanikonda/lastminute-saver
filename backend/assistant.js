@@ -85,13 +85,18 @@ You can execute the following actions:
      - "pendingAction": "postpone" | "prepone" | "modify" | "cancel"
      - "taskId" (string): The target task ID.
      - "updatedFields" (object): Any details they specified that we should save for execution once they give the reason (e.g., {"durationSeconds": 3600} or {"targetTimeISO": "..."}).
-8. "toggle_theme": Switch dark/light mode.
+8. "toggle_theme": Switch between dark and light mode. Use when user says 'dark mode', 'light mode', 'switch theme', 'change theme', etc.
 9. "update_profile": Change name or gender (Parameters: name, gender).
 10. "read_reminders": Read out active tasks.
 11. "read_history": Read out completed task history.
 12. "general_chat": Greetings, general talk, or fallback.
 13. "update_integrations": Globally toggle integrations.
-14. "navigate": Navigate to "calendar", "notifications", "history", "dashboard", "ai_workspace".
+14. "navigate": Navigate to a page. Destinations: "dashboard", "calendar", "history", "analytics", "recurring", "rescheduled", "ai_workspace", "notifications".
+    - Use "history" for: completed tasks, history page.
+    - Use "analytics" for: stats, analytics, reports.
+    - Use "recurring" for: repeating tasks, recurring reminders.
+    - Use "rescheduled" for: rescheduled, postponed tasks.
+    - Use "ai_workspace" for: AI mode, AI workspace, AI chat.
 
 Provide your output strictly in JSON format with this structure:
 {

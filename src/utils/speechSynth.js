@@ -94,8 +94,11 @@ export function speakReminder(taskText, userProfile = { gender: 'Male' }) {
 /**
  * Speaks a personal assistant task capture confirmation.
  */
-export function speakTaskCaptured(taskTitle, userProfile = { gender: 'Male' }, askWorkspaces = false) {
-  if (!('speechSynthesis' in window)) return;
+export function speakTaskCaptured(taskTitle, userProfile = { gender: 'Male' }, askWorkspaces = false, onEndCallback = null) {
+  if (!('speechSynthesis' in window)) {
+    if (onEndCallback) onEndCallback();
+    return;
+  }
 
   try { window.speechSynthesis.cancel(); } catch (e) {}
   const honorific = getHonorific(userProfile);
@@ -120,6 +123,7 @@ export function speakTaskCaptured(taskTitle, userProfile = { gender: 'Male' }, a
 
   utterance.rate = 0.98;
   utterance.pitch = 1.05;
+  if (onEndCallback) utterance.onend = onEndCallback;
   registerUtterance(utterance);
 
   window.speechSynthesis.speak(utterance);
