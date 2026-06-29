@@ -7,31 +7,18 @@ if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
   window.speechSynthesis.getVoices();
 }
 
-/**
- * Chrome Bug Fix: speechSynthesis silently stalls after ~15 seconds,
- * causing the tab to freeze or crash. This keepAlive pings pause/resume
- * every 10 seconds while speech is active to prevent the stall.
- */
-let _keepAliveTimer = null;
+let _activeUtterance = null;
 
-function startSpeechKeepAlive() {
-  stopSpeechKeepAlive();
-  _keepAliveTimer = setInterval(() => {
-    if (!window.speechSynthesis) return;
-    if (window.speechSynthesis.speaking) {
-      window.speechSynthesis.pause();
-      window.speechSynthesis.resume();
-    } else {
-      stopSpeechKeepAlive();
-    }
-  }, 10000);
-}
-
-function stopSpeechKeepAlive() {
-  if (_keepAliveTimer) {
-    clearInterval(_keepAliveTimer);
-    _keepAliveTimer = null;
-  }
+function registerUtterance(utt, onEndCb) {
+  _activeUtterance = utt;
+  utt.onend = () => {
+    _activeUtterance = null;
+    if (onEndCb) onEndCb();
+  };
+  utt.onerror = () => {
+    _activeUtterance = null;
+    if (onEndCb) onEndCb();
+  };
 }
 
 /**
@@ -81,8 +68,7 @@ export function speakReminder(taskText, userProfile = { gender: 'Male' }) {
     return;
   }
 
-  stopSpeechKeepAlive();
-  window.speechSynthesis.cancel();
+  try { window.speechSynthesis.cancel(); } catch (e) {}
   const honorific = getHonorific(userProfile);
 
   const phrases = [
@@ -100,11 +86,9 @@ export function speakReminder(taskText, userProfile = { gender: 'Male' }) {
 
   utterance.rate = 0.95; 
   utterance.pitch = 1.05;
-  utterance.onend = () => stopSpeechKeepAlive();
-  utterance.onerror = () => stopSpeechKeepAlive();
+  registerUtterance(utterance);
   
   window.speechSynthesis.speak(utterance);
-  startSpeechKeepAlive();
 }
 
 /**
@@ -113,8 +97,7 @@ export function speakReminder(taskText, userProfile = { gender: 'Male' }) {
 export function speakTaskCaptured(taskTitle, userProfile = { gender: 'Male' }, askWorkspaces = false) {
   if (!('speechSynthesis' in window)) return;
 
-  stopSpeechKeepAlive();
-  window.speechSynthesis.cancel();
+  try { window.speechSynthesis.cancel(); } catch (e) {}
   const honorific = getHonorific(userProfile);
 
   let textToSpeak = `Task captured, ${honorific}. `;
@@ -137,11 +120,9 @@ export function speakTaskCaptured(taskTitle, userProfile = { gender: 'Male' }, a
 
   utterance.rate = 0.98;
   utterance.pitch = 1.05;
-  utterance.onend = () => stopSpeechKeepAlive();
-  utterance.onerror = () => stopSpeechKeepAlive();
+  registerUtterance(utterance);
 
   window.speechSynthesis.speak(utterance);
-  startSpeechKeepAlive();
 }
 
 /**
@@ -153,8 +134,7 @@ export function speakText(text, userProfile = { gender: 'Male' }, onEndCallback 
     return;
   }
 
-  stopSpeechKeepAlive();
-  window.speechSynthesis.cancel();
+  try { window.speechSynthesis.cancel(); } catch (e) {}
   const utterance = new SpeechSynthesisUtterance(text);
   const voice = getSweetFemaleVoice();
   if (voice) utterance.voice = voice;
@@ -162,16 +142,6 @@ export function speakText(text, userProfile = { gender: 'Male' }, onEndCallback 
   utterance.rate = 0.98;
   utterance.pitch = 1.05;
 
-  utterance.onend = () => {
-    stopSpeechKeepAlive();
-    if (onEndCallback) onEndCallback();
-  };
-  // onerror: stop keepAlive and fire callback cleanly (do NOT pass error event to callback)
-  utterance.onerror = () => {
-    stopSpeechKeepAlive();
-    if (onEndCallback) onEndCallback();
-  };
-
+  registerUtterance(utterance, onEndCallback);
   window.speechSynthesis.speak(utterance);
-  startSpeechKeepAlive();
 }

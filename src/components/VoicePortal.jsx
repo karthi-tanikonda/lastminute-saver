@@ -235,10 +235,15 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
       let hasAudioChunks = false;
 
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-        mediaRecorderRef.current.stop();
-        await new Promise(resolve => {
-          mediaRecorderRef.current.onstop = resolve;
-        });
+        try {
+          mediaRecorderRef.current.stop();
+          await Promise.race([
+            new Promise(resolve => { mediaRecorderRef.current.onstop = resolve; }),
+            new Promise(resolve => setTimeout(resolve, 500))
+          ]);
+        } catch (mrErr) {
+          console.warn("MediaRecorder stop error:", mrErr);
+        }
         hasAudioChunks = audioChunksRef.current.length > 0;
       }
 
