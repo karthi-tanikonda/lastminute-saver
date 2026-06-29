@@ -1172,7 +1172,7 @@ if (isProduction) {
   const frontendPath = path.join(__dirname, '..', 'dist');
   app.use(express.static(frontendPath));
   // React Router catch-all: serve index.html for any non-API route
-  app.get('*', (req, res) => {
+  app.get('(.*)', (req, res) => {
     res.sendFile(path.join(frontendPath, 'index.html'));
   });
 }
