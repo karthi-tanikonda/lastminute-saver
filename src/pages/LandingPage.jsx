@@ -5,6 +5,11 @@ import {
 } from 'lucide-react';
 import { playClick } from '../utils/soundSynth';
 import mainBigLogo from '../assets/logo-dark.png';
+import imgLaila from '../assets/laila_demo.png';
+import imgAnalytics from '../assets/analytics_page.png';
+import imgChangelog from '../assets/changelog_page.png';
+import imgHistory from '../assets/history_page.png';
+import imgSidebar from '../assets/side_bar.png';
 
 export default function LandingPage() {
   const navigate = useNavigate();
@@ -122,6 +127,86 @@ export default function LandingPage() {
         </div>
 
       </main>
+
+      {/* NEW SHOWCASE SECTION (Mimicking "Projects" from screenshot) */}
+      <section className="max-w-7xl mx-auto w-full px-6 py-16 relative z-10">
+        <div className="mb-10">
+          <h2 className="text-3xl md:text-5xl font-headings font-extrabold text-white mb-4 tracking-tight">Platform Features</h2>
+          <p className="text-neutral-400 text-sm md:text-base max-w-2xl leading-relaxed">
+            Discover how LastMinuteSaver leverages modern web technologies and AI to build an exceptional productivity experience. These core features showcase our approach to rescuing your schedule.
+          </p>
+          <div className="mt-4 text-sm text-neutral-400">
+            Quick feature user guide. If you want to know all the features and how to use them, then <a href="https://docs.google.com/document/d/e/2PACX-1vTdaFDQsRpmedmYJsTLw-D8qVinznXrvLEjmzdO4CvlatqMKe2XRtVtRis3TVvzn5pEyX207kSfn0Jg/pub" target="_blank" rel="noopener noreferrer" className="text-[#00CFCF] hover:underline font-medium">click here</a>.
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
+          {/* Card 1: Sidebar */}
+          <div className="relative rounded-2xl overflow-hidden aspect-[4/5] group bg-white/5 border border-white/10 hover:border-blue-500/50 transition-all duration-300">
+            <img src={imgSidebar} alt="Smart Navigation" className="absolute inset-0 w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-700 opacity-90" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent"></div>
+            <div className="absolute bottom-0 left-0 p-6 w-full transform translate-y-2 group-hover:translate-y-0 transition-transform duration-300">
+              <h3 className="text-xl font-headings font-bold text-white mb-2">Smart Navigation</h3>
+              <p className="text-xs text-neutral-300 mb-4 line-clamp-3">Quickly jump between your tasks, recurring routines, history, and AI workspace directly from the dashboard sidebar.</p>
+              <a href="https://docs.google.com/document/d/e/2PACX-1vTdaFDQsRpmedmYJsTLw-D8qVinznXrvLEjmzdO4CvlatqMKe2XRtVtRis3TVvzn5pEyX207kSfn0Jg/pub" target="_blank" rel="noopener noreferrer" className="text-xs font-bold uppercase tracking-wider text-white group-hover:text-blue-400 flex items-center gap-2 transition-colors">
+                Read more <ArrowRight className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          </div>
+
+          {/* Card 2: Laila */}
+          <div className="relative rounded-2xl overflow-hidden aspect-[4/5] group bg-white/5 border border-white/10 hover:border-[#FF6A00]/50 transition-all duration-300">
+            <img src={imgLaila} alt="Laila AI Assistant" className="absolute inset-0 w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-700 opacity-90" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent"></div>
+            <div className="absolute bottom-0 left-0 p-6 w-full transform translate-y-2 group-hover:translate-y-0 transition-transform duration-300">
+              <h3 className="text-xl font-headings font-bold text-white mb-2">Laila AI Assistant</h3>
+              <p className="text-xs text-neutral-300 mb-4 line-clamp-3">Talk to our advanced AI voice assistant to break down complex tasks and rescue breached deadlines.</p>
+              <a href="https://docs.google.com/document/d/e/2PACX-1vTdaFDQsRpmedmYJsTLw-D8qVinznXrvLEjmzdO4CvlatqMKe2XRtVtRis3TVvzn5pEyX207kSfn0Jg/pub" target="_blank" rel="noopener noreferrer" className="text-xs font-bold uppercase tracking-wider text-white group-hover:text-[#FF6A00] flex items-center gap-2 transition-colors">
+                Read more <ArrowRight className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          </div>
+
+          {/* Card 2: Analytics */}
+          <div className="relative rounded-2xl overflow-hidden aspect-[4/5] group bg-white/5 border border-white/10 hover:border-[#00CFCF]/50 transition-all duration-300">
+            <img src={imgAnalytics} alt="Deep Analytics" className="absolute inset-0 w-full h-full object-cover object-left-top group-hover:scale-105 transition-transform duration-700 opacity-90" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent"></div>
+            <div className="absolute bottom-0 left-0 p-6 w-full transform translate-y-2 group-hover:translate-y-0 transition-transform duration-300">
+              <h3 className="text-xl font-headings font-bold text-white mb-2">Deep Analytics</h3>
+              <p className="text-xs text-neutral-300 mb-4 line-clamp-3">Track your productivity trends, completion rates, and focus times with gorgeous data visualizations.</p>
+              <a href="https://docs.google.com/document/d/e/2PACX-1vTdaFDQsRpmedmYJsTLw-D8qVinznXrvLEjmzdO4CvlatqMKe2XRtVtRis3TVvzn5pEyX207kSfn0Jg/pub" target="_blank" rel="noopener noreferrer" className="text-xs font-bold uppercase tracking-wider text-white group-hover:text-[#00CFCF] flex items-center gap-2 transition-colors">
+                Read more <ArrowRight className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          </div>
+
+          {/* Card 3: Changelog */}
+          <div className="relative rounded-2xl overflow-hidden aspect-[4/5] group bg-white/5 border border-white/10 hover:border-purple-500/50 transition-all duration-300">
+            <img src={imgChangelog} alt="Action Changelog" className="absolute inset-0 w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-700 opacity-90" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent"></div>
+            <div className="absolute bottom-0 left-0 p-6 w-full transform translate-y-2 group-hover:translate-y-0 transition-transform duration-300">
+              <h3 className="text-xl font-headings font-bold text-white mb-2">Action Changelog</h3>
+              <p className="text-xs text-neutral-300 mb-4 line-clamp-3">Maintain a comprehensive audit trail of every modification, snooze, and cancellation in your schedule.</p>
+              <a href="https://docs.google.com/document/d/e/2PACX-1vTdaFDQsRpmedmYJsTLw-D8qVinznXrvLEjmzdO4CvlatqMKe2XRtVtRis3TVvzn5pEyX207kSfn0Jg/pub" target="_blank" rel="noopener noreferrer" className="text-xs font-bold uppercase tracking-wider text-white group-hover:text-purple-400 flex items-center gap-2 transition-colors">
+                Read more <ArrowRight className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          </div>
+
+          {/* Card 4: History */}
+          <div className="relative rounded-2xl overflow-hidden aspect-[4/5] group bg-white/5 border border-white/10 hover:border-green-500/50 transition-all duration-300">
+            <img src={imgHistory} alt="Completion History" className="absolute inset-0 w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-700 opacity-90" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent"></div>
+            <div className="absolute bottom-0 left-0 p-6 w-full transform translate-y-2 group-hover:translate-y-0 transition-transform duration-300">
+              <h3 className="text-xl font-headings font-bold text-white mb-2">Completion History</h3>
+              <p className="text-xs text-neutral-300 mb-4 line-clamp-3">Look back at all your successfully completed tasks and celebrate your productivity wins.</p>
+              <a href="https://docs.google.com/document/d/e/2PACX-1vTdaFDQsRpmedmYJsTLw-D8qVinznXrvLEjmzdO4CvlatqMKe2XRtVtRis3TVvzn5pEyX207kSfn0Jg/pub" target="_blank" rel="noopener noreferrer" className="text-xs font-bold uppercase tracking-wider text-white group-hover:text-green-400 flex items-center gap-2 transition-colors">
+                Read more <ArrowRight className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* CORE FEATURES SHOWCASE MATRIX */}
       <section className="max-w-7xl mx-auto w-full px-6 py-12 relative z-10 border-t border-white/5">
