@@ -83,61 +83,68 @@ export default function IntegrationCards({ userProfile, setUserProfile, logNotif
     const item = integrations.find(it => it.id === id);
     
     if (id === 'telegram') {
-      setTelegramChatId(userProfile.telegramChatId || '');
-      setTelegramEnabled(userProfile.telegramEnabled || false);
-      setModalTarget(item);
+      if (!item.connected) {
+        setTelegramChatId(userProfile.telegramChatId || '');
+        setTelegramEnabled(userProfile.telegramEnabled || false);
+        setModalTarget(item);
+      } else {
+        // Disconnect
+        await fetch('/api/auth/profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ telegramEnabled: 0 })
+        });
+        setUserProfile(prev => ({ ...prev, telegramEnabled: false }));
+        logNotification("Telegram alerts disabled.", 'system');
+      }
       return;
     }
 
     if (id === 'email') {
-      setEmailAlertAddress(userProfile.emailAlert || '');
-      setEmailEnabled(userProfile.emailEnabled || false);
-      setModalTarget(item);
+      const isEnabling = !item.connected;
+      const targetEmail = userProfile.emailAlert || userProfile.email || '';
+      
+      await fetch('/api/auth/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          emailAlert: targetEmail,
+          emailEnabled: isEnabling ? 1 : 0
+        })
+      });
+      setUserProfile(prev => ({ ...prev, emailEnabled: isEnabling, emailAlert: targetEmail }));
+      logNotification(`Email alerts ${isEnabling ? 'enabled' : 'disabled'}.`, 'system');
       return;
     }
 
     if (id === 'gcal') {
       if (!item.connected) {
-        // Redirect to real Google Auth callback
         window.location.href = '/api/auth/google';
       } else {
-        disconnectOAuth(id);
+        await fetch('/api/auth/profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ googleConnected: 0 })
+        });
+        setUserProfile(prev => ({ ...prev, googleConnected: false }));
+        logNotification("Disconnected Google Calendar", 'system');
       }
       return;
     }
 
     if (id === 'notion') {
       if (!item.connected) {
-        setNotionToken(userProfile.notionToken || '');
-        setNotionDatabaseId(userProfile.notionDatabaseId || '');
-        setNotionStep('ask_account');
-        setModalTarget(item);
+        window.location.href = '/api/auth/notion';
       } else {
-        disconnectOAuth(id);
+        await fetch('/api/auth/profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ notionConnected: 0 })
+        });
+        setUserProfile(prev => ({ ...prev, notionConnected: false }));
+        logNotification("Disconnected Notion Workspace", 'system');
       }
       return;
-    }
-  };
-
-  const disconnectOAuth = async (id) => {
-    try {
-      const field = id === 'gcal' ? 'googleConnected' : 'notionConnected';
-      const res = await fetch('/api/auth/profile', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [field]: 0 })
-      });
-      if (res.ok) {
-        const updated = await res.json();
-        setUserProfile(prev => ({
-          ...prev,
-          googleConnected: Boolean(updated.googleConnected),
-          notionConnected: Boolean(updated.notionConnected)
-        }));
-        logNotification(`Disconnected ${id === 'gcal' ? 'Google Calendar' : 'Notion'} workspace`, 'system');
-      }
-    } catch (err) {
-      console.error(err);
     }
   };
 
@@ -522,16 +529,38 @@ export default function IntegrationCards({ userProfile, setUserProfile, logNotif
                 <p className="text-xs text-neutral-600 dark:text-gray-300 font-medium">
                   Click the button below to open our Telegram bot and click <strong>Start</strong>. It will link your account automatically!
                 </p>
-                <a
-                  href={`https://t.me/LastMinuteSaver_alerts_bot?start=${userProfile.id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => setModalTarget(null)}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    playClick();
+                    window.open(`https://t.me/LastMinuteSaver_alerts_bot?start=${userProfile.id}`, '_blank');
+                    logNotification("Waiting for Telegram bot connection...", 'system');
+                    // Poll for connection
+                    const pollInterval = setInterval(async () => {
+                      try {
+                        const res = await fetch('/api/auth/profile');
+                        if (res.ok) {
+                          const data = await res.json();
+                          if (data.telegramChatId && data.telegramEnabled) {
+                            clearInterval(pollInterval);
+                            setUserProfile(prev => ({
+                              ...prev,
+                              telegramChatId: data.telegramChatId,
+                              telegramEnabled: true
+                            }));
+                            setModalTarget(null);
+                            logNotification("Telegram connected successfully!", 'system');
+                          }
+                        }
+                      } catch (e) {}
+                    }, 3000);
+                    setTimeout(() => clearInterval(pollInterval), 60000); // stop polling after 60s
+                  }}
                   className="inline-flex items-center justify-center gap-2 bg-[#0088cc] hover:bg-[#0088cc]/90 text-white font-bold px-5 py-3 rounded-xl text-xs w-full text-center transition-all cursor-pointer shadow-lg shadow-[#0088cc]/20 hover:scale-[1.02]"
                 >
                   <Send className="w-4 h-4 animate-bounce-horizontal" />
                   Link Telegram Bot Instantly
-                </a>
+                </button>
               </div>
 
               <div className="relative flex py-1 items-center">
@@ -584,71 +613,7 @@ export default function IntegrationCards({ userProfile, setUserProfile, logNotif
         </div>
       )}
 
-      {/* Email Configuration Modal */}
-      {modalTarget && modalTarget.id === 'email' && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50 animate-fade-in">
-          <div className="bg-white dark:bg-[#121212] border border-neutral-250 dark:border-white/10 rounded-2xl p-6 w-96 shadow-2xl animate-panel-in relative">
-            <button 
-              type="button"
-              onClick={() => { playClick(); setModalTarget(null); }}
-              className="absolute top-4 right-4 text-neutral-400 hover:text-neutral-900 dark:hover:text-white cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
 
-            <h3 className="text-sm font-bold font-headings text-neutral-900 dark:text-white mb-2 flex items-center gap-1.5">
-              <Mail className="w-4 h-4 text-[#10B981]" />
-              Configure Email Alerts
-            </h3>
-            <p className="text-xs text-neutral-500 dark:text-gray-400 mb-4">
-              Receive alarms as automated HTML email notifications in your inbox.
-            </p>
-
-            <form onSubmit={handleEmailSubmit} className="space-y-4">
-              <div>
-                <label className="block text-[9px] font-bold text-neutral-400 uppercase tracking-widest font-headings mb-1.5">
-                  Alert Destination Email Address
-                </label>
-                <input
-                  type="email"
-                  required
-                  placeholder="name@domain.com"
-                  value={emailAlertAddress}
-                  onChange={(e) => setEmailAlertAddress(e.target.value)}
-                  className="w-full bg-neutral-100 dark:bg-black/40 border border-neutral-200 dark:border-white/5 rounded-xl px-3.5 py-2.5 text-xs text-neutral-900 dark:text-white placeholder-neutral-500 focus:outline-none focus:border-[#10B981] transition-all"
-                />
-              </div>
-
-              <label className="flex items-center justify-between p-3 rounded-xl border border-neutral-200 dark:border-white/5 bg-neutral-50/50 dark:bg-black/20 text-xs font-semibold cursor-pointer select-none">
-                <span>Enable Email Alerts</span>
-                <input
-                  type="checkbox"
-                  checked={emailEnabled}
-                  onChange={(e) => setEmailEnabled(e.target.checked)}
-                  className="w-4 h-4 accent-[#10B981] cursor-pointer"
-                />
-              </label>
-
-              <div className="flex gap-2 justify-end pt-4 border-t border-neutral-250 dark:border-white/5">
-                <button
-                  type="button"
-                  onClick={() => { playClick(); setModalTarget(null); }}
-                  className="px-4 py-2 text-xs font-bold text-neutral-500 hover:text-neutral-900 dark:hover:text-white cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="bg-gradient-to-r from-[#FF6A00] to-[#FF8C00] text-white font-bold px-5 py-2.5 rounded-xl text-xs cursor-pointer flex items-center gap-1.5"
-                >
-                  {loading ? 'Saving...' : 'Save Settings'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -4,7 +4,6 @@ import TaskAIChat from './TaskAIChat';
 import { playClick } from '../utils/soundSynth';
 import logoLight from '../assets/logo-light.png';
 import logoDark from '../assets/logo-dark.png';
-import mainLogoSmall from '../assets/main_logo_small.png';
 
 export default function AIModeView({ tasks, userProfile, theme, toggleTheme }) {
   const aiTasks = tasks.filter(t => t.aiEnabled && !t.completed);
@@ -237,7 +236,8 @@ export default function AIModeView({ tasks, userProfile, theme, toggleTheme }) {
         {/* Collapsed Sidebar Logo */}
         {!isSidebarOpen && (
           <div className="absolute top-4 left-6 z-50 flex items-center animate-fade-in">
-            <img src={mainLogoSmall} alt="LastMinuteSaver" className="h-12 md:h-14 w-auto object-contain drop-shadow-sm" />
+            <img src={logoLight} alt="LastMinuteSaver" className="h-12 md:h-14 w-auto dark:hidden object-contain drop-shadow-sm" />
+            <img src={logoDark} alt="LastMinuteSaver" className="h-12 md:h-14 w-auto hidden dark:block object-contain drop-shadow-sm" />
           </div>
         )}
 

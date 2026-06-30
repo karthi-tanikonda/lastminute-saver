@@ -4,33 +4,9 @@ import { playClick } from '../utils/soundSynth';
 import { speakText } from '../utils/speechSynth';
 import TaskAIChat from './TaskAIChat';
 
-const generateSubtasks = (title, category) => {
-  const cat = category?.toLowerCase() || '';
-  const t = title.toLowerCase();
-  
-  if (cat === 'work' || t.includes('meeting') || t.includes('project')) {
-    return [
-      { id: 's1', text: 'Gather required documents/notes', done: false },
-      { id: 's2', text: 'Review key objectives', done: false },
-      { id: 's3', text: 'Draft initial summary', done: false }
-    ];
-  } else if (cat === 'personal' || t.includes('grocery') || t.includes('buy')) {
-    return [
-      { id: 's1', text: 'Check inventory at home', done: false },
-      { id: 's2', text: 'List essential items', done: false },
-      { id: 's3', text: 'Set a quick budget', done: false }
-    ];
-  }
-  
-  return [
-    { id: 's1', text: 'Review context and details', done: false },
-    { id: 's2', text: 'Complete first milestone', done: false },
-    { id: 's3', text: 'Finalize and double-check', done: false }
-  ];
-};
 
 export default function TaskCard({ task, onDelete, onComplete, onExpire, userProfile }) {
-  const { id, title, durationSeconds, priority, createdAt, aiEnabled } = task;
+  const { id, title, durationSeconds, priority, createdAt, aiEnabled, bufferWall, breached } = task;
   
   // Calculate remaining time based on current time vs expiration time
   const getSecondsRemaining = () => {
@@ -39,7 +15,14 @@ export default function TaskCard({ task, onDelete, onComplete, onExpire, userPro
     return remaining > 0 ? remaining : 0;
   };
 
+  const getBufferRemaining = () => {
+    if (!bufferWall) return null;
+    const remainingMs = bufferWall - Date.now();
+    return remainingMs > 0 ? Math.floor(remainingMs / 1000) : 0;
+  };
+
   const [timeLeft, setTimeLeft] = useState(getSecondsRemaining());
+  const [bufferLeft, setBufferLeft] = useState(getBufferRemaining());
   const [isActionPlanExpanded, setIsActionPlanExpanded] = useState(false);
   const [isAIChatOpen, setIsAIChatOpen] = useState(false);
   const [subtasks, setSubtasks] = useState([]);
@@ -50,33 +33,32 @@ export default function TaskCard({ task, onDelete, onComplete, onExpire, userPro
   const [showEmergencyOverlay, setShowEmergencyOverlay] = useState(false);
   const [aiGeneratingHelp, setAiGeneratingHelp] = useState(false);
 
+  const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
+
   // Fetch or seed subtasks from database on expansion
   useEffect(() => {
     if (isActionPlanExpanded && subtasks.length === 0) {
+      setIsGeneratingPlan(true);
       fetch(`/api/tasks/${id}/subtasks`)
         .then(res => res.json())
         .then(async (data) => {
           if (data.length === 0) {
-            // Seed DB with generated action plan
-            const generated = generateSubtasks(title, task.category);
-            const saved = [];
-            for (const sub of generated) {
-              const res = await fetch(`/api/tasks/${id}/subtasks`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title: sub.text })
-              });
+            // Seed DB with generated action plan via Real AI
+            try {
+              const res = await fetch(`/api/tasks/${id}/subtasks/generate-ai`, { method: 'POST' });
               if (res.ok) {
-                const newSub = await res.json();
-                saved.push(newSub);
+                const generatedSteps = await res.json();
+                setSubtasks(generatedSteps);
               }
+            } catch (err) {
+              console.error("AI Generation failed:", err);
             }
-            setSubtasks(saved);
           } else {
             setSubtasks(data);
           }
         })
-        .catch(console.error);
+        .catch(console.error)
+        .finally(() => setIsGeneratingPlan(false));
     }
   }, [isActionPlanExpanded, id, title, task.category]);
 
@@ -169,6 +151,7 @@ export default function TaskCard({ task, onDelete, onComplete, onExpire, userPro
     const interval = setInterval(() => {
       const remaining = getSecondsRemaining();
       setTimeLeft(remaining);
+      setBufferLeft(getBufferRemaining());
 
       // 1. 10-Minute Snooze & AI Help warning for Urgent/High & AI-Enabled reminders
       if ((priority === 'Urgent' || priority === 'High') && aiEnabled) {
@@ -263,12 +246,45 @@ export default function TaskCard({ task, onDelete, onComplete, onExpire, userPro
         <div className="absolute inset-0 bg-[#FF6A00]/5 dark:bg-[#FF6A00]/5 animate-pulse pointer-events-none"></div>
       )}
 
-      {/* Progress Bar background */}
-      <div className="absolute bottom-0 left-0 right-0 h-1 bg-neutral-200/20 dark:bg-white/5">
-        <div 
-          className={`h-full ${currentStyle.progress} transition-all duration-1000 ease-linear`}
-          style={{ width: `${progressPercent}%` }}
-        ></div>
+      {/* Progress Bar / Timeline visualization */}
+      <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-neutral-200/20 dark:bg-white/5 overflow-hidden">
+        {bufferWall ? (
+          <>
+            {/* Safe Zone (Green/Blue depending on priority) */}
+            <div 
+              className={`absolute left-0 top-0 bottom-0 ${bufferLeft === 0 ? 'bg-red-500' : currentStyle.progress} transition-all duration-1000 ease-linear`}
+              style={{ width: `${Math.min(100, Math.max(0, (bufferLeft / (bufferWall - createdAt)) * 100)) * ((bufferWall - createdAt) / (durationSeconds * 1000))}%` }}
+            ></div>
+            
+            {/* Buffer Wall Marker */}
+            <div 
+              className="absolute top-0 bottom-0 w-1 bg-white dark:bg-red-500 shadow-[0_0_8px_rgba(255,0,0,0.8)] z-10"
+              style={{ left: `${((bufferWall - createdAt) / (durationSeconds * 1000)) * 100}%` }}
+            ></div>
+
+            {/* Danger Zone background */}
+            <div 
+              className="absolute top-0 bottom-0 right-0 bg-red-500/20"
+              style={{ width: `${(1 - ((bufferWall - createdAt) / (durationSeconds * 1000))) * 100}%` }}
+            ></div>
+            
+            {/* Danger Zone Progress */}
+            {bufferLeft === 0 && (
+              <div 
+                className="absolute top-0 bottom-0 bg-red-500 animate-pulse transition-all duration-1000 ease-linear"
+                style={{ 
+                  left: `${((bufferWall - createdAt) / (durationSeconds * 1000)) * 100}%`,
+                  width: `${(1 - (timeLeft / (durationSeconds - (bufferWall - createdAt)/1000))) * (1 - ((bufferWall - createdAt) / (durationSeconds * 1000))) * 100}%` 
+                }}
+              ></div>
+            )}
+          </>
+        ) : (
+          <div 
+            className={`h-full ${currentStyle.progress} transition-all duration-1000 ease-linear`}
+            style={{ width: `${progressPercent}%` }}
+          ></div>
+        )}
       </div>
 
       <div className="flex justify-between items-start mb-3 gap-3">
@@ -296,23 +312,30 @@ export default function TaskCard({ task, onDelete, onComplete, onExpire, userPro
       <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isActionPlanExpanded ? 'max-h-64 opacity-100 mb-4' : 'max-h-0 opacity-0'}`}>
         <div className="space-y-2 mt-2 bg-white/50 dark:bg-black/20 rounded-lg p-3 border border-neutral-200 dark:border-white/5">
           <div className="flex items-center gap-2 mb-2 text-xs font-semibold text-[#00CFCF]">
-            <Zap className="w-3.5 h-3.5" />
-            <span>Autonomous Action Plan</span>
+            <Zap className={`w-3.5 h-3.5 ${isGeneratingPlan ? 'animate-pulse text-[#FF6A00]' : ''}`} />
+            <span>{isGeneratingPlan ? 'Generating AI Plan...' : 'Autonomous Action Plan'}</span>
           </div>
-          {subtasks.map((st) => (
-            <button
-              key={st.id}
-              onClick={() => handleToggleSubtask(st.id)}
-              className="flex items-start gap-2.5 w-full text-left group"
-            >
-              <div className={`mt-0.5 transition-colors ${st.completed ? 'text-[#00CFCF]' : 'text-neutral-400 dark:text-gray-500 group-hover:text-[#00CFCF]/70'}`}>
-                {st.completed ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
-              </div>
-              <span className={`text-xs transition-all ${st.completed ? 'line-through text-neutral-400 dark:text-gray-500' : 'text-neutral-700 dark:text-gray-300'}`}>
-                {st.title}
-              </span>
-            </button>
-          ))}
+          {isGeneratingPlan ? (
+            <div className="py-3 text-xs text-neutral-400 dark:text-gray-500 italic flex items-center justify-center gap-2 border border-dashed border-neutral-200 dark:border-white/10 rounded-lg">
+               <div className="w-3 h-3 border-2 border-[#00CFCF] border-t-transparent rounded-full animate-spin"></div>
+               Consulting AI for steps...
+            </div>
+          ) : (
+            subtasks.map((st) => (
+              <button
+                key={st.id}
+                onClick={() => handleToggleSubtask(st.id)}
+                className="flex items-start gap-2.5 w-full text-left group"
+              >
+                <div className={`mt-0.5 transition-colors ${st.completed ? 'text-[#00CFCF]' : 'text-neutral-400 dark:text-gray-500 group-hover:text-[#00CFCF]/70'}`}>
+                  {st.completed ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                </div>
+                <span className={`text-xs transition-all ${st.completed ? 'line-through text-neutral-400 dark:text-gray-500' : 'text-neutral-700 dark:text-gray-300'}`}>
+                  {st.title}
+                </span>
+              </button>
+            ))
+          )}
         </div>
       </div>
 

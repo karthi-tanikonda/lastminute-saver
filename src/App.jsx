@@ -4,8 +4,9 @@ import {
   Sparkles, Mic, BellRing, Volume2, ShieldAlert, Award, Clock, 
   Sun, Moon, Search, Calendar, Folder, User, Bell, ChevronLeft, 
   ChevronRight, HelpCircle, AlignLeft, ShieldCheck, HeartHandshake,
-  Activity, CheckCircle2, History, X, Settings, Plus, Trash, CalendarDays, CalendarRange, LogOut, Bot, Home, BarChart2, Rows3, LayoutGrid, Repeat
+  Activity, CheckCircle2, History, X, Settings, Plus, Trash, CalendarDays, CalendarRange, LogOut, Bot, Home, BarChart2, Rows3, LayoutGrid, Repeat, Pipette
 } from 'lucide-react';
+import { HexColorPicker } from "react-colorful";
 import logoLight from './assets/logo-light.png';
 import logoDark from './assets/logo-dark.png';
 import TaskForm from './components/TaskForm';
@@ -20,6 +21,8 @@ import HistoryView from './components/HistoryView';
 import AnalyticsView from './components/AnalyticsView';
 import ChangeLogView from './components/ChangeLogView';
 import RecurringTasksView from './components/RecurringTasksView';
+import FocusLockdownScreen from './components/FocusLockdownScreen';
+import BreachedTasksRescueView from './components/BreachedTasksRescueView';
 import { playChime, playClick } from './utils/soundSynth';
 import { speakReminder } from './utils/speechSynth';
 
@@ -52,7 +55,7 @@ function Dashboard() {
   const [highlightTrigger, setHighlightTrigger] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
   const [activeFilter, setActiveFilter] = useState(() => {
-    return localStorage.getItem('lmls_active_tab') || 'all';
+    return localStorage.getItem('lms_active_tab') || 'all';
   });
   const [calendarViewMode, setCalendarViewMode] = useState('month');
   const [searchQuery, setSearchQuery] = useState('');
@@ -64,9 +67,14 @@ function Dashboard() {
   const [categories, setCategories] = useState([]);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryColor, setNewCategoryColor] = useState('#00CFCF');
+  const [showColorPicker, setShowColorPicker] = useState(false);
   const [showCatForm, setShowCatForm] = useState(false);
   const [sortBy, setSortBy] = useState('time'); 
   const [userProfile, setUserProfile] = useState({ username: 'User', gender: 'Male' });
+  
+  // Lockdown State
+  const [showLockdown, setShowLockdown] = useState(false);
+  const [breachedTask, setBreachedTask] = useState(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
   
   // OTP state variables
@@ -78,7 +86,7 @@ function Dashboard() {
 
   const quotes = [
     "Time is of the essence! Do not let critical tasks expire.",
-    "Procrastination is the thief of time. Let LMLS save your day.",
+    "Procrastination is the thief of time. Let LMS save your day.",
     "Speak naturally: 'remind me to check the oven in 15 seconds urgent'.",
     "NLP Parser automatically maps priorities: Urgent, High, Med, Low.",
     "A stitch in time saves nine. Keep your dashboard organized!"
@@ -94,8 +102,38 @@ function Dashboard() {
 
   // Persist active tab across reloads
   useEffect(() => {
-    localStorage.setItem('lmls_active_tab', activeFilter);
+    localStorage.setItem('lms_active_tab', activeFilter);
   }, [activeFilter]);
+
+  // Connect to SSE for Buffer Wall breaches
+  useEffect(() => {
+    const eventSource = new EventSource('/api/events');
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'BUFFER_BREACH') {
+          // Verify task is still in our state before locking down
+          setTasks(prev => {
+            const exists = prev.find(t => t.id === data.taskId);
+            if (exists) {
+              setBreachedTask({ taskId: data.taskId, title: data.title });
+              setShowLockdown(true);
+            }
+            return prev;
+          });
+        }
+      } catch (e) {
+        console.error("Error parsing SSE data", e);
+      }
+    };
+    
+    eventSource.onerror = (e) => {
+      // Browser auto-reconnects on error
+    };
+
+    return () => eventSource.close();
+  }, []);
 
   // Update Clock every second
   useEffect(() => {
@@ -312,15 +350,22 @@ function Dashboard() {
     };
   }, [isVoiceActive, hasInteracted]);
 
-  const toggleTheme = () => {
-    const nextTheme = theme === 'dark' ? 'light' : 'dark';
-    setTheme(nextTheme);
-    document.documentElement.classList.toggle('dark', nextTheme === 'dark');
-    fetch('/api/auth/profile', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ theme: nextTheme })
-    }).catch(console.error);
+  const toggleTheme = (forceTheme) => {
+    setTheme(prevTheme => {
+      let nextTheme;
+      if (typeof forceTheme === 'string' && (forceTheme === 'dark' || forceTheme === 'light')) {
+        nextTheme = forceTheme;
+      } else {
+        nextTheme = prevTheme === 'dark' ? 'light' : 'dark';
+      }
+      document.documentElement.classList.toggle('dark', nextTheme === 'dark');
+      fetch('/api/auth/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ theme: nextTheme })
+      }).catch(console.error);
+      return nextTheme;
+    });
   };
 
   const handleAddCategory = async (e) => {
@@ -523,6 +568,9 @@ function Dashboard() {
       setTasks(prev => prev.filter(t => t.id !== id));
       setCompletedTasks(prev => [...prev, { ...task, completed: true, completedAt: Date.now() }]);
       logNotification(`Completed reminder: "${task.title}"`, 'complete');
+      if (task.isRecurring) {
+        fetchTasksData();
+      }
     } catch (err) {
       console.error(err);
     }
@@ -781,6 +829,7 @@ function Dashboard() {
                 { id: 'history', label: 'History', icon: History },
                 { id: 'analytics', label: 'Analytics', icon: BarChart2 },
                 { id: 'rescheduled', label: 'Change Log', icon: Activity },
+                { id: 'rescue', label: 'Rescue Mode', icon: ShieldAlert },
               ].map(item => {
                 const Icon = item.icon;
                 const isActive = activeFilter === item.id;
@@ -862,17 +911,34 @@ function Dashboard() {
                     onChange={(e) => setNewCategoryName(e.target.value)}
                     className="w-full bg-white dark:bg-black/40 border border-neutral-200 dark:border-white/10 rounded px-2 py-1.5 text-[10px] text-neutral-900 dark:text-white outline-none focus:ring-1 focus:ring-[#00CFCF]"
                   />
-                  <div className="flex justify-between items-center">
-                    <div className="relative overflow-hidden w-6 h-6 rounded-full border border-neutral-300 dark:border-neutral-700 shadow-inner group">
-                      <input
-                        type="color"
-                        value={newCategoryColor}
-                        onChange={(e) => setNewCategoryColor(e.target.value)}
-                        className="absolute -top-2 -left-2 w-10 h-10 border-none cursor-pointer p-0 m-0"
+                  <div className="flex justify-between items-center relative">
+                    <div className="relative">
+                      <div 
+                        onClick={() => setShowColorPicker(!showColorPicker)}
+                        className="w-6 h-6 rounded-full border border-neutral-300 dark:border-neutral-700 shadow-inner group flex items-center justify-center cursor-pointer transition-transform hover:scale-110" 
+                        style={{ backgroundColor: newCategoryColor }}
                         title="Pick category color"
-                      />
+                      >
+                        <Pipette className="w-3.5 h-3.5 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" style={{ mixBlendMode: 'difference' }} />
+                      </div>
+                      
+                      {showColorPicker && (
+                        <div className="absolute z-50 bottom-full left-0 mb-2 p-3 bg-white dark:bg-[#1A1A1A] border border-neutral-200 dark:border-white/10 rounded-2xl shadow-2xl animate-fade-in origin-bottom-left">
+                          <div className="fixed inset-0 z-[-1]" onClick={() => setShowColorPicker(false)}></div>
+                          <HexColorPicker color={newCategoryColor} onChange={setNewCategoryColor} />
+                          <div className="mt-3 flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-full shadow-inner border border-white/10" style={{ backgroundColor: newCategoryColor }}></div>
+                            <input 
+                              type="text" 
+                              value={newCategoryColor} 
+                              onChange={(e) => setNewCategoryColor(e.target.value)}
+                              className="w-full text-xs font-mono bg-neutral-100 dark:bg-black/40 border border-neutral-200 dark:border-white/10 rounded-lg px-2 py-1 outline-none text-neutral-900 dark:text-white uppercase"
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <button type="submit" className="bg-[#00CFCF] hover:bg-[#00B5B5] text-black font-bold text-[10px] px-3 py-1.5 rounded transition-colors shadow-sm">
+                    <button type="submit" onClick={() => setShowColorPicker(false)} className="bg-[#00CFCF] hover:bg-[#00B5B5] text-black font-bold text-[10px] px-3 py-1.5 rounded transition-colors shadow-sm">
                       Create
                     </button>
                   </div>
@@ -1013,26 +1079,36 @@ function Dashboard() {
 
         {/* Expiry Alarm Modal */}
         {activeAlert && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
-            <div className="bg-white dark:bg-[#1A1A1A] border-2 border-[#FF6A00] rounded-2xl p-8 max-w-md w-full text-center space-y-6 shadow-[0_0_50px_rgba(255,106,0,0.3)] relative overflow-hidden">
-              <div className="w-20 h-20 rounded-full bg-[#FF6A00]/10 border border-[#FF6A00]/30 flex items-center justify-center mx-auto text-[#FF6A00] animate-pulse">
-                <ShieldAlert className="w-10 h-10" />
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-lg p-4 animate-in fade-in zoom-in duration-300">
+            <div className="bg-gradient-to-b from-[#1A1A1A] to-black border border-[#FF6A00]/50 rounded-3xl p-8 max-w-md w-full text-center space-y-6 shadow-[0_20px_60px_-15px_rgba(255,106,0,0.4)] relative overflow-hidden">
+              {/* Background accent */}
+              <div className="absolute -top-24 -left-24 w-48 h-48 bg-[#FF6A00]/20 rounded-full blur-3xl pointer-events-none"></div>
+              <div className="absolute -bottom-24 -right-24 w-48 h-48 bg-[#00CFCF]/20 rounded-full blur-3xl pointer-events-none"></div>
+              
+              <div className="relative z-10 w-24 h-24 rounded-full bg-gradient-to-br from-[#FF6A00] to-[#FF8C00] flex items-center justify-center mx-auto shadow-[0_0_30px_rgba(255,106,0,0.6)] animate-pulse">
+                <ShieldAlert className="w-12 h-12 text-white" />
               </div>
-              <div className="space-y-2">
-                <span className="text-xs uppercase tracking-widest text-[#FF6A00] font-bold font-headings">LMLS Triggered!</span>
-                <h2 className="text-2xl font-bold font-headings text-neutral-900 dark:text-white line-clamp-3">
+              
+              <div className="space-y-3 relative z-10">
+                <span className="inline-block px-3 py-1 rounded-full bg-[#FF6A00]/20 border border-[#FF6A00]/30 text-[10px] uppercase tracking-[0.2em] text-[#FF6A00] font-bold">Laila Triggered</span>
+                <h2 className="text-3xl font-extrabold font-headings text-white leading-tight drop-shadow-md">
                   {activeAlert.title}
                 </h2>
-                <p className="text-xs text-neutral-600 dark:text-gray-400">
-                  Priority: <span className="text-[#00CFCF] font-semibold">{activeAlert.priority}</span>
+                <div className="flex justify-center items-center gap-2">
+                  <span className="text-xs text-gray-400">Priority:</span>
+                  <span className="px-2 py-0.5 rounded text-xs font-bold bg-[#00CFCF]/20 text-[#00CFCF]">{activeAlert.priority}</span>
+                </div>
+              </div>
+              
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4 relative z-10">
+                <p className="text-sm text-gray-300 italic font-light">
+                  "I am Laila, your reminder for this task. It's time to take action!"
                 </p>
               </div>
-              <p className="text-xs text-neutral-500 dark:text-gray-500 italic">
-                "Excuse me! This is your Last Minute Life Saver..."
-              </p>
+              
               <button
                 onClick={handleDismissAlert}
-                className="w-full bg-[#FF6A00] hover:bg-[#FF8C00] text-white font-bold py-3.5 rounded-xl transition-all shadow-[0_0_20px_rgba(255,106,0,0.3)] hover:shadow-[0_0_30px_rgba(255,106,0,0.5)] cursor-pointer text-sm"
+                className="relative z-10 w-full bg-gradient-to-r from-[#FF6A00] to-[#FF8C00] hover:from-[#FF8C00] hover:to-[#FFA000] text-white font-bold py-4 rounded-xl transition-all shadow-[0_0_20px_rgba(255,106,0,0.4)] hover:shadow-[0_0_40px_rgba(255,106,0,0.6)] hover:scale-[1.02] active:scale-[0.98] cursor-pointer text-base uppercase tracking-wide"
               >
                 I Got It!
               </button>
@@ -1081,6 +1157,14 @@ function Dashboard() {
               Support
             </button>
           </main>
+        ) : activeFilter === 'rescue' ? (
+          <main className="p-0 flex-grow flex flex-col relative animate-fade-in min-h-0">
+            <BreachedTasksRescueView 
+              tasks={tasks} 
+              userProfile={userProfile} 
+              onCloseRescue={() => setActiveFilter('all')} 
+            />
+          </main>
         ) : activeFilter === 'calendar' ? (
           <main className="px-4 py-3 flex-grow flex flex-col relative animate-fade-in min-h-0 overflow-hidden">
             <CalendarView
@@ -1120,11 +1204,19 @@ function Dashboard() {
           <div className="lg:col-span-8 flex flex-col space-y-6">
             
             {/* User Greeting Banner */}
-            <div className="flex flex-col space-y-1">
-              <h2 className="text-xl md:text-2xl font-bold tracking-tight text-neutral-900 dark:text-white font-headings">
+            <div className="flex flex-col space-y-1 relative pr-32">
+              <div className="absolute top-0 right-8 text-right hidden sm:block">
+                <div className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest">
+                  {currentTime.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })}
+                </div>
+                <div className="text-lg font-extrabold text-[#00CFCF] tracking-wide font-headings">
+                  {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
+              </div>
+              <h2 className="text-xl md:text-2xl font-bold tracking-tight text-neutral-900 dark:text-white font-headings pr-4">
                 Welcome back, <span className="bg-clip-text text-transparent bg-gradient-to-r from-[#FF6A00] to-[#00CFCF]">{userProfile.username}</span>!
               </h2>
-              <p className="text-xs text-neutral-500 dark:text-gray-400 font-medium">
+              <p className="text-xs text-neutral-500 dark:text-gray-400 font-medium max-w-lg">
                 Let's plan smarter, manage deadlines, and rescue your schedule today.
               </p>
             </div>
@@ -1136,16 +1228,18 @@ function Dashboard() {
 
             {/* Voice Portal on small devices only (swapped with active queue list on mobile) */}
             <div className="block lg:hidden">
-              <VoicePortal
-                isVoiceActive={isVoiceActive}
-                setIsVoiceActive={setIsVoiceActive}
-                onAddTask={handleAddTask}
-                userProfile={userProfile}
-                onRefreshTasks={fetchTasksData}
-                toggleTheme={toggleTheme}
-                mode="dashboard"
-                contextDate={voiceContextDate}
-              />
+              {!isDesktop && (
+                <VoicePortal
+                  isVoiceActive={isVoiceActive}
+                  setIsVoiceActive={setIsVoiceActive}
+                  onAddTask={handleAddTask}
+                  userProfile={userProfile}
+                  onRefreshTasks={fetchTasksData}
+                  toggleTheme={toggleTheme}
+                  mode="dashboard"
+                  contextDate={voiceContextDate}
+                />
+              )}
             </div>
 
             {/* Active Board Controls */}
@@ -1191,16 +1285,18 @@ function Dashboard() {
             
             {/* Dashboard Voice Portal - visible on desktop only */}
             <div className="hidden lg:block">
-              <VoicePortal
-                isVoiceActive={isVoiceActive}
-                setIsVoiceActive={setIsVoiceActive}
-                onAddTask={handleAddTask}
-                userProfile={userProfile}
-                onRefreshTasks={fetchTasksData}
-                toggleTheme={toggleTheme}
-                mode="dashboard"
-                contextDate={voiceContextDate}
-              />
+              {isDesktop && (
+                <VoicePortal
+                  isVoiceActive={isVoiceActive}
+                  setIsVoiceActive={setIsVoiceActive}
+                  onAddTask={handleAddTask}
+                  userProfile={userProfile}
+                  onRefreshTasks={fetchTasksData}
+                  toggleTheme={toggleTheme}
+                  mode="dashboard"
+                  contextDate={voiceContextDate}
+                />
+              )}
             </div>
             
             <IntegrationCards 
@@ -1226,7 +1322,7 @@ function Dashboard() {
                 LastMinuteSaver Guide
               </h3>
               <div className="space-y-3.5 text-xs text-neutral-600 dark:text-gray-300">
-                <p>LMLS combines natural language parsing with responsive urgency control to ensure you never miss critical actions.</p>
+                <p>LMS combines natural language parsing with responsive urgency control to ensure you never miss critical actions.</p>
                 <div>
                   <h4 className="font-semibold text-neutral-800 dark:text-white mb-1">📅 Natural Time Formats:</h4>
                   <ul className="list-disc pl-4 space-y-1">
@@ -1374,6 +1470,29 @@ function Dashboard() {
               contextDate={voiceContextDate}
             />
           )}
+          
+        {showLockdown && breachedTask && (
+          <FocusLockdownScreen 
+            task={breachedTask} 
+            onDismiss={() => {
+              setShowLockdown(false);
+              setBreachedTask(null);
+              fetchTasksData(); // Refresh tasks to clear breached status if started
+            }}
+            onStartRescueMode={() => {
+              setShowLockdown(false);
+              setBreachedTask(null);
+              setActiveFilter('rescue');
+              fetchTasksData();
+            }}
+            onOpenAIWorkspace={() => {
+              setShowLockdown(false);
+              setBreachedTask(null);
+              setActiveFilter('ai-mode');
+              fetchTasksData();
+            }}
+          />
+        )}
       </div>
     </div>
   );

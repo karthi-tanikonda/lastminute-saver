@@ -34,7 +34,7 @@ const db = new sqlite3.Database(dbPath, (err) => {
         createdAt INTEGER NOT NULL
       )`);
 
-      // Tasks table (updated to support userId and sync preferences)
+      // Tasks table (updated to support userId, sync preferences, and AI Engine metrics)
       db.run(`CREATE TABLE IF NOT EXISTS tasks (
         id TEXT PRIMARY KEY,
         userId TEXT NOT NULL DEFAULT 'guest',
@@ -53,12 +53,22 @@ const db = new sqlite3.Database(dbPath, (err) => {
         syncTelegram BOOLEAN DEFAULT 1,
         syncEmail BOOLEAN DEFAULT 1,
         modificationReason TEXT,
-        aiEnabled BOOLEAN DEFAULT 0
+        aiEnabled BOOLEAN DEFAULT 0,
+        autoSchedule BOOLEAN DEFAULT 0,
+        estimatedSeconds INTEGER,
+        parentTaskId TEXT,
+        bufferWall INTEGER,
+        complexity TEXT,
+        breached BOOLEAN DEFAULT 0
       )`);
 
-      db.run("ALTER TABLE tasks ADD COLUMN aiEnabled BOOLEAN DEFAULT 0", (err) => {
-        // Ignore error if column already exists
-      });
+      db.run("ALTER TABLE tasks ADD COLUMN aiEnabled BOOLEAN DEFAULT 0", (err) => {});
+      db.run("ALTER TABLE tasks ADD COLUMN autoSchedule BOOLEAN DEFAULT 0", (err) => {});
+      db.run("ALTER TABLE tasks ADD COLUMN estimatedSeconds INTEGER", (err) => {});
+      db.run("ALTER TABLE tasks ADD COLUMN parentTaskId TEXT", (err) => {});
+      db.run("ALTER TABLE tasks ADD COLUMN bufferWall INTEGER", (err) => {});
+      db.run("ALTER TABLE tasks ADD COLUMN complexity TEXT", (err) => {});
+      db.run("ALTER TABLE tasks ADD COLUMN breached BOOLEAN DEFAULT 0", (err) => {});
 
       // Subtasks table
       db.run(`CREATE TABLE IF NOT EXISTS subtasks (

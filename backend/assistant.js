@@ -1,7 +1,7 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Groq = require('groq-sdk');
 
-async function processAssistantMessage(text, userProfile, activeTasks = [], completedTasks = [], context = null) {
+async function processAssistantMessage(text, userProfile, activeTasks = [], completedTasks = [], context = null, workload = null) {
   const apiKey = process.env.GEMINI_API_KEY;
   const honorific = (userProfile?.gender || 'Male').toLowerCase() === 'female' ? 'Madam' : 'Sir';
 
@@ -31,6 +31,9 @@ async function processAssistantMessage(text, userProfile, activeTasks = [], comp
     const slimActiveTasks = activeTasks.map(t => ({ id: t.id, title: t.title, priority: t.priority, targetTime: t.targetTime }));
     
     let contextSection = `Here is the current state of the application:\n- User Profile: ${JSON.stringify(userProfile)}\n- Active Reminders: ${JSON.stringify(slimActiveTasks)}\n- Recently Completed Tasks (History): ${JSON.stringify(slimCompletedTasks)}\n`;
+    if (workload) {
+      contextSection += `- 14-Day Workload Context (Tasks, Duration & Titles per day): ${JSON.stringify(workload)}\n`;
+    }
     if (context && context.clientTime) {
       contextSection = `User's Current Local Time: ${context.clientTime}\n` + contextSection;
     }
@@ -40,6 +43,9 @@ async function processAssistantMessage(text, userProfile, activeTasks = [], comp
     if (context && context.isReviewing) {
       contextSection += `- Draft Reminder State (User is currently reviewing this): ${JSON.stringify(context.draftDetails)}\n`;
     }
+
+    const isGoogleLinked = userProfile?.googleAccessToken ? "Linked" : "Unlinked";
+    contextSection += `- Google Calendar Integration: ${isGoogleLinked}\n`;
 
     const systemInstruction = `You are Laila, a polite, sweet, and highly professional female Personal Assistant (PA) to the user.
 Always address the user as "${honorific}". 
@@ -54,15 +60,51 @@ You can execute the following actions:
    - Time Parameters (USE ONLY ONE):
       - "durationSeconds" (number): for relative times (e.g. "in 5 minutes" = 300)
       - "targetTimeISO" (string): for absolute times (e.g. "at 6:30 PM"). Output a local ISO-8601 string without a 'Z' (e.g., "YYYY-MM-DDTHH:mm:ss") based on the User's Current Local Time and UI Context date. NEVER output 'Z' or UTC offsets.
-   - Recurrence Parameters (optional): "isRecurring" (boolean), "recurInterval" (number), "recurUnit" ("days", "weeks", "months").
-   - AI Mode (optional): "aiEnabled" (boolean) - only if user asks to enable AI mode for the task.
+   - Recurrence Parameters (optional): "isRecurring" (boolean), "recurInterval" (number), "recurUnit" ("seconds", "minutes", "hours", "days", "weeks", "months").
+   - Auto-Scheduler Parameters: "autoSchedule" (boolean) - MUST ALWAYS be true for new tasks. "estimatedSeconds" (number) - the estimated time the task will take to complete.
+
+   *** CRITICAL RULES FOR ALL NEW TASKS ***
+   STEP 1 — CAPTURE THE TASK:
+   If the user wants to schedule a task but DOES NOT specify how much time it takes in their speech (e.g. "Remind me to finish website deployment on Friday"), you MUST use "create_reminder" to create the draft. Set "autoSchedule" to true, but set "estimatedSeconds" to null (or omit it). In your "speechResponse", ask: "How much time will this task take to complete, ${honorific}?" This opens the draft card so they can reply in context.
+   
+   STEP 2 — CAPTURE DURATION AND IMMEDIATELY CHECK WORKLOAD (COMBINED — DO BOTH IN ONE RESPONSE):
+   When the user replies with the duration (e.g. "2 hours", "6 to 7 hours"), you MUST do the following in a SINGLE response:
+   a) Use "update_draft" to set "estimatedSeconds" to the duration in seconds (e.g. 7200 for 2 hours, 23400 for 6.5 hours).
+   b) IMMEDIATELY in the SAME response, check the "14-Day Workload Context" for the draft's target date. Look at the "totalEstimatedSeconds" field for that date and ADD the new task's estimatedSeconds to it.
+   
+   *** NEVER SKIP THIS CHECK. DO NOT ASK "Shall I save?" AFTER RECEIVING DURATION. YOU MUST CHECK WORKLOAD FIRST. ***
+   
+   - BUSY THRESHOLD: A day is considered busy if (existing totalEstimatedSeconds + new task's estimatedSeconds) >= 36000 (10 hours total).
+   - IF BUSY (>= 36000): You MUST NOT ask to save. In your "speechResponse", warn: "You already have [taskCount] tasks scheduled on that day that take up about [X] hours, ${honorific}. Would you like me to check your calendar for a day with more free time near that date?" Keep using "update_draft" action.
+   - IF FREE (< 36000): In your "speechResponse", say: "This day looks clear with only [X] hours of tasks, ${honorific}. Shall I save this reminder?"
+   
+   STEP 3 — FIND A FREER DAY (when user says "yes/proceed/check" to the busy warning):
+   Scan ALL dates in the 14-Day Workload Context. Find the day nearest to the originally requested date that has the LOWEST totalEstimatedSeconds (most free time). Use "update_draft" with the new targetTimeISO (keep the same time of day, change only the date) and say: "I found that [DayName, Date] has more free time with only [X] hours of tasks, ${honorific}. Should I schedule it to that day?"
+   
+   STEP 4 — HANDLE USER'S RESPONSE TO THE SUGGESTED DAY:
+   A) If the user ACCEPTS (says "yes", "okay", "proceed", "go ahead"): The draft is already updated to the suggested day. Ask: "Can I save this reminder, ${honorific}?"
+   B) If the user REFUSES (says "no", "nah", "don't want that"):
+      - You MUST ask: "Then can I proceed with the same day you said before, ${honorific}?"
+      - If the user says "yes" to proceeding with original day: Use "update_draft" to set targetTimeISO back to the originally requested day, then ask: "Can I save this reminder, ${honorific}?"
+      - If the user says "no" (they don't want original day either): Ask: "Then please specify another day, ${honorific}, so that I can check whether there is free time on that day."
+      - When they specify a new day, go back to the workload check in STEP 2b for that new day. This loop repeats until the user is satisfied.
+   
+   STEP 5 — SAVE:
+   ONLY when the user explicitly says "save", "confirm", "yes" (in response to "Can I save this reminder?" or "Shall I save?"), trigger "confirm_draft". NEVER trigger "confirm_draft" before the workload negotiation is complete.
+   
+   STEP 6 — GOOGLE CALENDAR CHECK:
+   If the user asks you to read, fetch, or check their Google Calendar events, check the "Google Calendar Integration" status. If it is "Unlinked" or you don't have the data, use "general_chat" and politely say: "I'm sorry ${honorific}, I'm unable to access your Google Calendar right now. Please make sure it is linked in the integrations section."
+   
+   STEP 7 — TASK READOUT FOR SPECIFIC DATES:
+   If the user asks "What tasks do I have on [Date]?", "What's scheduled for tomorrow?", "Read my tasks for Monday", etc., look at the "14-Day Workload Context" for that date. If there are tasks listed in the "tasks" array for that day, use "general_chat" and in your speechResponse, read out each task's title and scheduled time conversationally. For example: "On Tuesday you have 3 tasks, ${honorific}: 'Go to my village' at 3:22 AM, 'Take DSA notes' at 9:00 AM, and 'Deploy a website' at 10:55 PM." If there are no tasks, say: "Your schedule looks clear on that day, ${honorific}."
+
 2. "update_draft": Use this ONLY IF the user is currently reviewing a Draft Reminder, and wants to change its details.
    - Parameters (all optional):
       - "title" (string)
       - "durationSeconds" (number) or "targetTimeISO" (string)
       - "priority" ("Low", "Medium", "High", "Urgent")
       - "category" ("Personal", "Work")
-      - "isRecurring" (boolean), "recurInterval" (number), "recurUnit" ("days", "weeks", "months")
+      - "isRecurring" (boolean), "recurInterval" (number), "recurUnit" ("seconds", "minutes", "hours", "days", "weeks", "months")
       - "aiEnabled" (boolean)
       - "syncGoogle" (boolean), "syncNotion" (boolean), "syncTelegram" (boolean), "syncEmail" (boolean)
 3. "confirm_draft": Use this ONLY IF the user is currently reviewing a Draft Reminder, and tells you to save it, confirm it, or looks good.
@@ -87,7 +129,8 @@ You can execute the following actions:
      - "pendingAction": "postpone" | "prepone" | "modify" | "cancel"
      - "taskId" (string): The target task ID.
      - "updatedFields" (object): Any details they specified that we should save for execution once they give the reason (e.g., {"durationSeconds": 3600} or {"targetTimeISO": "..."}).
-8. "toggle_theme": Switch between dark and light mode. Use when user says 'dark mode', 'light mode', 'switch theme', 'change theme', etc.
+8. "change_theme": Switch between dark and light mode. Use when user says 'dark mode', 'light mode', 'switch theme', 'change theme', etc.
+   - Parameters: "mode" ("dark", "light", "toggle")
 9. "update_profile": Change name or gender (Parameters: name, gender).
 10. "read_reminders": Read out active tasks.
 11. "read_history": Read out completed task history.
@@ -235,31 +278,51 @@ Be concise, practical, and highly proactive. Don't simulate actions, but provide
   }
 }
 
-async function generateAISubtasks(taskTitle) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey === 'YOUR_FREE_GEMINI_API_KEY_HERE') {
+async function generateFreeSubtasks(prompt) {
+  try {
+    const encodedPrompt = encodeURIComponent(prompt + " Output ONLY a raw JSON array of strings, absolutely no markdown blocks.");
+    const response = await fetch(`https://text.pollinations.ai/${encodedPrompt}?model=openai`);
+    const text = await response.text();
+    // Clean up markdown block if the AI ignored the instruction
+    const cleanText = text.replace(/```json/gi, '').replace(/```/gi, '').trim();
+    return JSON.parse(cleanText);
+  } catch (e) {
+    console.error("Pollinations fallback failed:", e);
     return [
-      "Gather required materials",
-      "Draft first quick outline",
-      "Perform a final check"
+      "AI fallback also failed",
+      "Please wait a moment and try again",
+      "Or complete this task manually"
     ];
   }
+}
+
+async function generateAISubtasks(taskTitle) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  const prompt = `Give me exactly 3 short, action-oriented, quick steps to complete the task: "${taskTitle}" in under 10 minutes. Return a JSON array of strings only. Example: ["Step 1", "Step 2", "Step 3"]`;
+  
+  if (!apiKey || apiKey === 'YOUR_FREE_GEMINI_API_KEY_HERE') {
+    return generateFreeSubtasks(prompt);
+  }
+  
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({
       model: 'gemini-3.5-flash',
       generationConfig: { responseMimeType: 'application/json' }
     });
-    const prompt = `Give me exactly 3 short, action-oriented, quick steps to complete the task: "${taskTitle}" in under 10 minutes. Return a JSON array of strings only. Example: ["Step 1", "Step 2", "Step 3"]`;
     const result = await model.generateContent(prompt);
     const text = result.response.text();
     return JSON.parse(text);
   } catch (err) {
     console.error("AI Subtasks error:", err);
+    if (err.status === 429 || err.status === 503) {
+      console.log("Gemini hit rate limit, instantly switching to Pollinations AI...");
+      return generateFreeSubtasks(prompt);
+    }
     return [
-      "Quick step 1: Focus on core task",
-      "Quick step 2: Minimize distractions",
-      "Quick step 3: Wrap up and save"
+      "AI generation failed",
+      "Please check your API key or connection",
+      "Try generating again later"
     ];
   }
 }

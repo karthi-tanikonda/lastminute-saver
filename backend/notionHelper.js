@@ -35,9 +35,10 @@ async function createNotionTaskPage(userId, task) {
           key => dbSchema.properties[key].type === 'title'
         ) || 'Name';
 
-        // 2. Check if optional "Priority" and "Category" properties exist
+        // 2. Check if optional "Priority", "Category", and "Date" properties exist
         const hasPriorityColumn = dbSchema.properties['Priority'] && dbSchema.properties['Priority'].type === 'select';
         const hasCategoryColumn = dbSchema.properties['Category'] && dbSchema.properties['Category'].type === 'select';
+        const dateColumnKey = Object.keys(dbSchema.properties).find(key => dbSchema.properties[key].type === 'date');
 
         // 3. Construct properties payload dynamically
         const propertiesPayload = {
@@ -57,6 +58,13 @@ async function createNotionTaskPage(userId, task) {
         if (hasCategoryColumn) {
           propertiesPayload['Category'] = {
             "select": { "name": task.category || 'Personal' }
+          };
+        }
+
+        if (dateColumnKey) {
+          const targetTimeIso = new Date(task.createdAt + task.durationSeconds * 1000).toISOString();
+          propertiesPayload[dateColumnKey] = {
+            "date": { "start": targetTimeIso }
           };
         }
 

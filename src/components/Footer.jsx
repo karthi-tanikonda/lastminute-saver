@@ -14,7 +14,7 @@ export default function Footer() {
           <a href="#contact" className="hover:text-[#00CFCF] transition-colors">Contact</a>
         </div>
         <div className="text-[10px] text-neutral-400 dark:text-gray-600">
-          © {new Date().getFullYear()} LMLS Inc. All rights reserved.
+          © {new Date().getFullYear()} LMS Inc. All rights reserved.
         </div>
       </div>
     </footer>

@@ -72,10 +72,10 @@ export function speakReminder(taskText, userProfile = { gender: 'Male' }) {
   const honorific = getHonorific(userProfile);
 
   const phrases = [
-    `Excuse me ${honorific}! This is your Last Minute Life Saver. It's time to ${taskText}!`,
-    `Attention please, ${honorific}. It is time to ${taskText}!`,
-    `Reminder check, ${honorific}: Time to ${taskText}.`,
-    `Hey there ${honorific}! Don't forget, you need to ${taskText} now!`
+    `Excuse me ${honorific}! I am Laila, your reminder for the task: ${taskText}.`,
+    `Attention please, ${honorific}. I am Laila, your reminder for the task: ${taskText}.`,
+    `Reminder check, ${honorific}: I am Laila, your reminder for the task: ${taskText}.`,
+    `Hey there ${honorific}! I am Laila, your reminder for the task: ${taskText}.`
   ];
 
   const textToSpeak = phrases[Math.floor(Math.random() * phrases.length)];

@@ -60,11 +60,16 @@ async function createGoogleCalendarEvent(userId, task) {
         return resolve({ success: false, reason: 'Google Calendar integration inactive or unlinked.' });
       }
 
-      const startTime = new Date(task.createdAt).toISOString();
-      const endTime = new Date(task.createdAt + task.durationSeconds * 1000).toISOString();
+      const endMs = task.createdAt + task.durationSeconds * 1000;
+      // Block out the actual estimated task duration on Google Calendar (fallback: 30 min)
+      const taskDurationMs = (task.estimatedSeconds || 1800) * 1000;
+      const startMs = endMs - taskDurationMs;
+      
+      const startTime = new Date(startMs).toISOString();
+      const endTime = new Date(endMs).toISOString();
 
       const eventBody = {
-        summary: `LMLS: ${task.title}`,
+        summary: `LMS: ${task.title}`,
         description: `Alarm scheduled on LastMinuteSaver.\nPriority: ${task.priority}\nStreak Tracker: Enabled`,
         start: { dateTime: startTime },
         end: { dateTime: endTime }
@@ -108,6 +113,55 @@ async function createGoogleCalendarEvent(userId, task) {
   });
 }
 
+/**
+ * Fetches free/busy information from Google Calendar for the given time range.
+ */
+async function fetchFreeBusy(userId, startTimeISO, endTimeISO) {
+  return new Promise((resolve) => {
+    db.get('SELECT * FROM users WHERE id = ?', [userId], async (dbErr, user) => {
+      if (dbErr || !user || !user.googleConnected || !user.googleAccessToken) {
+        return resolve({ success: false, reason: 'Google Calendar integration inactive.' });
+      }
+
+      const requestBody = {
+        timeMin: startTimeISO,
+        timeMax: endTimeISO,
+        items: [{ id: 'primary' }]
+      };
+
+      const sendRequest = async (token) => {
+        return fetch('https://www.googleapis.com/calendar/v3/freeBusy', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(requestBody)
+        });
+      };
+
+      try {
+        let response = await sendRequest(user.googleAccessToken);
+        if (response.status === 401 && user.googleRefreshToken) {
+          const newAccessToken = await refreshGoogleAccessToken(userId, user.googleRefreshToken);
+          response = await sendRequest(newAccessToken);
+        }
+
+        if (response.ok) {
+          const data = await response.json();
+          const busySlots = data.calendars.primary.busy || [];
+          resolve({ success: true, busy: busySlots });
+        } else {
+          resolve({ success: false, reason: await response.text() });
+        }
+      } catch (err) {
+        resolve({ success: false, error: err.message });
+      }
+    });
+  });
+}
+
 module.exports = {
-  createGoogleCalendarEvent
+  createGoogleCalendarEvent,
+  fetchFreeBusy
 };

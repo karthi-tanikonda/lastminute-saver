@@ -3,6 +3,7 @@ import {
   Repeat, Calendar, ArrowUpDown, ChevronDown, CheckCircle2, 
   Trash, Sparkles, Filter, Award, Clock, Flame
 } from 'lucide-react';
+import CustomSelect from './CustomSelect';
 
 export default function RecurringTasksView({ 
   tasks, 
@@ -84,7 +85,7 @@ export default function RecurringTasksView({
     <div className="flex-grow flex flex-col space-y-6 p-1 animate-fade-in text-neutral-900 dark:text-white">
       
       {/* Header Panel */}
-      <div className="relative overflow-hidden bg-gradient-to-r from-neutral-950 to-neutral-900 border border-white/5 rounded-3xl p-6 md:p-8 shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <div className="relative overflow-hidden bg-gradient-to-r from-neutral-50 to-neutral-100 dark:from-neutral-950 dark:to-neutral-900 border border-neutral-200 dark:border-white/5 rounded-3xl p-6 md:p-8 shadow-sm dark:shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="absolute top-0 right-0 w-64 h-64 bg-[#00CFCF]/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none"></div>
         <div className="absolute bottom-0 left-0 w-64 h-64 bg-[#FF6A00]/5 rounded-full blur-3xl -ml-20 -mb-20 pointer-events-none"></div>
         
@@ -94,10 +95,10 @@ export default function RecurringTasksView({
               <Repeat className="w-5 h-5 animate-spin-slow" />
             </div>
             <div>
-              <h1 className="text-xl md:text-2xl font-black tracking-tight font-headings">
+              <h1 className="text-xl md:text-2xl font-black tracking-tight font-headings text-neutral-900 dark:text-white">
                 Recurring Routine Board
               </h1>
-              <p className="text-xs text-neutral-400 font-medium">
+              <p className="text-xs text-neutral-500 dark:text-neutral-400 font-medium">
                 Keep track of all repeated tasks and reminder cycles
               </p>
             </div>
@@ -106,13 +107,13 @@ export default function RecurringTasksView({
 
         {/* Stats Grid */}
         <div className="flex gap-4 relative z-10">
-          <div className="bg-white/5 border border-white/5 px-5 py-3 rounded-2xl flex items-center gap-3">
+          <div className="bg-white dark:bg-white/5 border border-neutral-200 dark:border-white/5 px-5 py-3 rounded-2xl flex items-center gap-3">
             <div className="w-8 h-8 rounded-xl bg-[#00CFCF]/10 flex items-center justify-center text-[#00CFCF]">
               <Flame className="w-4.5 h-4.5" />
             </div>
             <div>
               <p className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Active Rules</p>
-              <h3 className="text-lg font-extrabold font-headings text-white">{recurringTasks.length}</h3>
+              <h3 className="text-lg font-extrabold font-headings text-neutral-900 dark:text-white">{recurringTasks.length}</h3>
             </div>
           </div>
         </div>
@@ -153,35 +154,33 @@ export default function RecurringTasksView({
           </div>
 
           {/* Category Dropdown */}
-          <div className="relative">
-            <select
+          <div className="w-40 shrink-0">
+            <CustomSelect
               value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              className="appearance-none bg-neutral-100 dark:bg-black/40 border border-neutral-200 dark:border-white/5 text-xs text-neutral-700 dark:text-gray-300 px-4 py-1.5 pr-8 rounded-xl focus:outline-none cursor-pointer"
-            >
-              <option value="All">All Categories</option>
-              {categories.map(cat => (
-                <option key={cat.id} value={cat.name}>{cat.name}</option>
-              ))}
-            </select>
-            <ChevronDown className="w-3.5 h-3.5 text-neutral-500 absolute right-3 top-2.5 pointer-events-none" />
+              onChange={setCategoryFilter}
+              options={[
+                { label: 'All Categories', value: 'All' },
+                ...categories.map(cat => ({ label: cat.name, value: cat.name }))
+              ]}
+              buttonClassName="bg-neutral-100 dark:bg-black/40 border border-neutral-200 dark:border-white/5 text-xs text-neutral-700 dark:text-gray-300 px-4 py-1.5 rounded-xl hover:border-[#00CFCF]/50 w-full"
+            />
           </div>
 
           {/* Sort Dropdown */}
-          <div className="relative">
-            <select
+          <div className="w-48 shrink-0">
+            <CustomSelect
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="appearance-none bg-neutral-100 dark:bg-black/40 border border-neutral-200 dark:border-white/5 text-xs text-neutral-700 dark:text-gray-300 px-4 py-1.5 pr-8 rounded-xl focus:outline-none cursor-pointer"
-            >
-              <option value="priority-desc">Priority: High to Low</option>
-              <option value="priority-asc">Priority: Low to High</option>
-              <option value="title-asc">Alphabetical: A to Z</option>
-              <option value="title-desc">Alphabetical: Z to A</option>
-              <option value="interval-asc">Interval: Short to Long</option>
-              <option value="interval-desc">Interval: Long to Short</option>
-            </select>
-            <ArrowUpDown className="w-3.5 h-3.5 text-neutral-500 absolute right-3 top-2.5 pointer-events-none" />
+              onChange={setSortBy}
+              options={[
+                { label: 'Priority: High to Low', value: 'priority-desc' },
+                { label: 'Priority: Low to High', value: 'priority-asc' },
+                { label: 'Alphabetical: A to Z', value: 'title-asc' },
+                { label: 'Alphabetical: Z to A', value: 'title-desc' },
+                { label: 'Interval: Short to Long', value: 'interval-asc' },
+                { label: 'Interval: Long to Short', value: 'interval-desc' }
+              ]}
+              buttonClassName="bg-neutral-100 dark:bg-black/40 border border-neutral-200 dark:border-white/5 text-xs text-neutral-700 dark:text-gray-300 px-4 py-1.5 rounded-xl hover:border-[#00CFCF]/50 w-full"
+            />
           </div>
         </div>
       </div>

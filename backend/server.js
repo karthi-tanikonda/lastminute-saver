@@ -292,28 +292,45 @@ function scheduleTaskTimer(task) {
 function triggerExpiry(taskId) {
   db.get("SELECT * FROM tasks WHERE id = ?", [taskId], (err, task) => {
     if (err || !task || task.completed) return;
-    
-    // Mark as complete/expired in DB
-    db.run("UPDATE tasks SET completed = 1, completedAt = ? WHERE id = ?", [Date.now(), taskId], (updateErr) => {
-      if (updateErr) return console.error(updateErr);
-      
-      // Auto-trigger next recurring occurrence if necessary
-      if (task.isRecurring && task.recurInterval && task.recurUnit) {
-        let additionSeconds = 0;
-        if (task.recurUnit === 'hour') additionSeconds = task.recurInterval * 3600;
-        else if (task.recurUnit === 'day') additionSeconds = task.recurInterval * 86400;
-        else if (task.recurUnit === 'week') additionSeconds = task.recurInterval * 86400 * 7;
-        else if (task.recurUnit === 'month') additionSeconds = task.recurInterval * 86400 * 30;
+        // Mark as complete/expired in DB
+     db.get("SELECT completed FROM tasks WHERE id = ?", [taskId], (err, currentTask) => {
+       if (err || !currentTask || currentTask.completed) return; // Already completed by frontend or another timer
+       
+       db.run("UPDATE tasks SET completed = 1, completedAt = ? WHERE id = ?", [Date.now(), taskId], (updateErr) => {
+         if (updateErr) return console.error(updateErr);
+         
+         // Auto-trigger next recurring occurrence if necessary
+         if (task.isRecurring && task.recurInterval && task.recurUnit) {
+           let additionSeconds = 0;
+        const unit = (task.recurUnit || '').toLowerCase().trim();
+        
+        if (unit === 'second' || unit === 'seconds') additionSeconds = task.recurInterval;
+        else if (unit === 'minute' || unit === 'minutes') additionSeconds = task.recurInterval * 60;
+        else if (unit === 'hour' || unit === 'hours') additionSeconds = task.recurInterval * 3600;
+        else if (unit === 'day' || unit === 'days') additionSeconds = task.recurInterval * 86400;
+        else if (unit === 'week' || unit === 'weeks') additionSeconds = task.recurInterval * 86400 * 7;
+        else if (unit === 'month' || unit === 'months') additionSeconds = task.recurInterval * 86400 * 30;
+
+        if (additionSeconds <= 0) {
+          console.error(`[Recurring] Aborting reschedule loop: invalid unit "${task.recurUnit}" or interval ${task.recurInterval}`);
+          return;
+        }
 
         const newCreatedAt = Date.now();
         const nextTaskId = Date.now().toString() + '-recur';
         
         db.run(`INSERT INTO tasks 
-          (id, userId, title, durationSeconds, priority, category, createdAt, completed, isRecurring, recurInterval, recurUnit) 
-          VALUES (?, ?, ?, ?, ?, ?, createdAt, 0, ?, ?, ?)`,
-          [nextTaskId, task.userId, task.title, additionSeconds, task.priority, task.category, newCreatedAt, 1, task.recurInterval, task.recurUnit],
+          (id, userId, title, durationSeconds, priority, category, createdAt, completed, isRecurring, recurInterval, recurUnit, syncGoogle, syncNotion, syncTelegram, syncEmail, aiEnabled, autoSchedule, estimatedSeconds) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [nextTaskId, task.userId, task.title, additionSeconds, task.priority, task.category, newCreatedAt, 
+            1, task.recurInterval, task.recurUnit,
+            task.syncGoogle || 0, task.syncNotion || 0, task.syncTelegram || 0, task.syncEmail || 0,
+            task.aiEnabled || 0, task.autoSchedule || 0, task.estimatedSeconds || null],
           function(insertErr) {
-            if (!insertErr) {
+            if (insertErr) {
+              console.error(`[Recurring/Timer] Failed to create next occurrence for "${task.title}":`, insertErr.message);
+            } else {
+              console.log(`[Recurring/Timer] Created next occurrence "${task.title}" (ID: ${nextTaskId}) due in ${additionSeconds}s`);
               db.get("SELECT * FROM tasks WHERE id = ?", [nextTaskId], (err, nextTask) => {
                 if (!err && nextTask) scheduleTaskTimer(nextTask);
               });
@@ -322,14 +339,15 @@ function triggerExpiry(taskId) {
         );
       }
 
-      // Send Web Push notification to user subscriptions
-      const payload = {
-        title: `🚨 LastMinuteSaver: ${task.title}`,
-        body: `Your reminder priority was ${task.priority}. Time is up!`
-      };
-      
-      sendPushNotification(task.userId, payload);
-      sendTelegramAndEmailAlerts(task.userId, task);
+        // Send Web Push notification to user subscriptions
+        const payload = {
+          title: `🚨 LastMinuteSaver: ${task.title}`,
+          body: `Your reminder priority was ${task.priority}. Time is up!`
+        };
+        
+        sendPushNotification(task.userId, payload);
+        sendTelegramAndEmailAlerts(task.userId, task);
+      });
     });
   });
 }
@@ -492,7 +510,7 @@ app.post('/api/auth/login', (req, res) => {
 app.get('/api/auth/google', (req, res, next) => {
   if (googleClientId && googleClientSecret && googleClientSecret !== 'YOUR_GOOGLE_CLIENT_SECRET_HERE') {
     passport.authenticate('google', { 
-      scope: ['profile', 'email']
+      scope: ['profile', 'email', 'https://www.googleapis.com/auth/calendar.readonly', 'https://www.googleapis.com/auth/calendar.events']
     })(req, res, next);
   } else {
     // Simulated Google OAuth Flow for testing if keys are missing
@@ -648,7 +666,7 @@ app.get('/api/auth/notion', (req, res) => {
   // Store user ID in session to retrieve on callback redirect
   req.session.notionUserId = req.user.id;
 
-  const authUrl = `https://api.notion.com/v1/oauth/authorize?client_id=${clientId}&response_type=code&owner=user&redirect_uri=${BASE_URL}/api/auth/notion/callback`;
+  const authUrl = `https://api.notion.com/v1/oauth/authorize?client_id=${clientId}&response_type=code&owner=user&redirect_uri=${encodeURIComponent(BASE_URL + '/api/auth/notion/callback')}`;
   res.redirect(authUrl);
 });
 
@@ -761,14 +779,43 @@ app.post('/api/subscribe', checkAuth, (req, res) => {
 
 // --- TASKS API ---
 
+app.get('/api/tasks/workload', checkAuth, (req, res) => {
+  db.all('SELECT createdAt, durationSeconds FROM tasks WHERE userId = ? AND completed = 0', [req.user.id], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    
+    const now = new Date();
+    const workload = {};
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(now);
+      d.setDate(now.getDate() + i);
+      const dateStr = d.toISOString().split('T')[0];
+      workload[dateStr] = { taskCount: 0, totalSeconds: 0 };
+    }
+    
+    rows.forEach(task => {
+      // For Do Dates/Deadlines, we map them to the calendar date they fall on
+      const targetTime = task.createdAt + (task.durationSeconds * 1000);
+      const dateStr = new Date(targetTime).toISOString().split('T')[0];
+      if (workload[dateStr]) {
+        workload[dateStr].taskCount += 1;
+        workload[dateStr].totalSeconds += task.durationSeconds;
+      }
+    });
+    
+    res.json(workload);
+  });
+});
+
 app.get('/api/tasks', checkAuth, (req, res) => {
-  db.all('SELECT * FROM tasks WHERE userId = ? ORDER BY createdAt ASC', [req.user.id], (err, rows) => {
+  // Hide micro-blocks (where parentTaskId IS NOT NULL) from the frontend dashboard
+  db.all('SELECT * FROM tasks WHERE userId = ? AND parentTaskId IS NULL ORDER BY createdAt ASC', [req.user.id], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     const tasks = rows.map(r => ({
       ...r,
       completed: Boolean(r.completed),
       isRecurring: Boolean(r.isRecurring),
-      aiEnabled: Boolean(r.aiEnabled)
+      aiEnabled: Boolean(r.aiEnabled),
+      autoSchedule: Boolean(r.autoSchedule)
     }));
     res.json(tasks);
   });
@@ -782,20 +829,26 @@ app.get('/api/tasks/completed', checkAuth, (req, res) => {
   });
 });
 
+const aiEngine = require('./aiEngine');
+
 app.post('/api/tasks', checkAuth, async (req, res) => {
-  const { id, title, durationSeconds, priority, category, isRecurring, recurInterval, recurUnit, syncGoogle, syncNotion, syncTelegram, syncEmail, aiEnabled } = req.body;
+  const { id, title, durationSeconds, priority, category, isRecurring, recurInterval, recurUnit, syncGoogle, syncNotion, syncTelegram, syncEmail, aiEnabled, autoSchedule, estimatedSeconds } = req.body;
   const createdAt = Date.now();
   const taskId = id || Date.now().toString(); 
+  
+  const realDeadlineMs = createdAt + (durationSeconds * 1000);
+  const { bufferWallMs, complexity } = await aiEngine.calculateBufferWindow(title, req.user.id, realDeadlineMs);
 
   const sql = `INSERT INTO tasks 
-    (id, userId, title, durationSeconds, priority, category, createdAt, completed, isRecurring, recurInterval, recurUnit, syncGoogle, syncNotion, syncTelegram, syncEmail, aiEnabled) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    (id, userId, title, durationSeconds, priority, category, createdAt, completed, isRecurring, recurInterval, recurUnit, syncGoogle, syncNotion, syncTelegram, syncEmail, aiEnabled, autoSchedule, estimatedSeconds, bufferWall, complexity) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
   
   db.run(sql, [
     taskId, req.user.id, title, durationSeconds, priority || 'Medium', category || 'Personal', createdAt, 
     isRecurring ? 1 : 0, recurInterval || null, recurUnit || null,
     syncGoogle === false ? 0 : 1, syncNotion === false ? 0 : 1, syncTelegram === false ? 0 : 1, syncEmail === false ? 0 : 1,
-    aiEnabled ? 1 : 0
+    aiEnabled ? 1 : 0, autoSchedule ? 1 : 0, estimatedSeconds || null,
+    bufferWallMs, complexity
   ], function(err) {
     if (err) return res.status(500).json({ error: err.message });
     
@@ -807,8 +860,22 @@ app.post('/api/tasks', checkAuth, async (req, res) => {
       syncNotion: syncNotion !== false,
       syncTelegram: syncTelegram !== false,
       syncEmail: syncEmail !== false,
-      aiEnabled: Boolean(aiEnabled)
+      aiEnabled: Boolean(aiEnabled),
+      autoSchedule: Boolean(autoSchedule),
+      estimatedSeconds,
+      bufferWall: bufferWallMs,
+      complexity,
+      breached: 0
     };
+    
+    if (autoSchedule) {
+      // Trigger Time Blocking Algorithm
+      const { scheduleMicroBlocks } = require('./autoScheduler');
+      scheduleMicroBlocks(req.user.id, taskObj);
+      // We don't sync the main giant task to Google Calendar, only the sub-blocks
+      taskObj.syncGoogle = false; 
+    }
+
     scheduleTaskTimer(taskObj);
 
     // Sync with Google Calendar if connected
@@ -884,9 +951,30 @@ app.post('/api/assistant', checkAuth, async (req, res) => {
   // Get active and completed tasks for prompt context
   db.all('SELECT * FROM tasks WHERE userId = ? AND completed = 0', [req.user.id], (err, tasks) => {
     const activeTasks = err ? [] : tasks;
+    
+    // Compute 14-day workload summary with task details for Laila readout
+    const now = new Date();
+    const workload = {};
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(now);
+      d.setDate(now.getDate() + i);
+      const dateStr = d.toISOString().split('T')[0];
+      workload[dateStr] = { taskCount: 0, totalSeconds: 0, totalEstimatedSeconds: 0, tasks: [] };
+    }
+    activeTasks.forEach(task => {
+      const targetTime = task.createdAt + (task.durationSeconds * 1000);
+      const dateStr = new Date(targetTime).toISOString().split('T')[0];
+      if (workload[dateStr]) {
+        workload[dateStr].taskCount += 1;
+        workload[dateStr].totalSeconds += task.durationSeconds;
+        workload[dateStr].totalEstimatedSeconds += (task.estimatedSeconds || 0);
+        workload[dateStr].tasks.push({ title: task.title, priority: task.priority, time: new Date(targetTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) });
+      }
+    });
+
     db.all('SELECT * FROM tasks WHERE userId = ? AND completed = 1 ORDER BY completedAt DESC LIMIT 50', [req.user.id], (err2, cTasks) => {
       const completedTasks = err2 ? [] : cTasks;
-      processAssistantMessage(text, req.user, activeTasks, completedTasks, context)
+      processAssistantMessage(text, req.user, activeTasks, completedTasks, context, workload)
         .then(result => res.json(result))
         .catch(error => res.status(500).json({ error: error.message }));
     });
@@ -955,35 +1043,49 @@ app.put('/api/tasks/:id', checkAuth, (req, res) => {
       delete activeTimers[req.params.id];
     }
 
+    // If marking as completed and it is recurring, generate the next task
     const sql = `UPDATE tasks SET completed = ?, completedAt = ? WHERE id = ? AND userId = ?`;
     db.run(sql, [completed ? 1 : 0, completedAt || null, req.params.id, req.user.id], function(updateErr) {
       if (updateErr) return res.status(500).json({ error: updateErr.message });
       
-      // If marking as completed and it is recurring, generate the next task
-      if (completed && task.isRecurring && task.recurInterval && task.recurUnit) {
+      // Only generate next task if it wasn't already completed
+      if (completed && !task.completed && task.isRecurring && task.recurInterval && task.recurUnit) {
         let additionSeconds = 0;
-        if (task.recurUnit === 'hour') additionSeconds = task.recurInterval * 3600;
-        else if (task.recurUnit === 'day') additionSeconds = task.recurInterval * 86400;
-        else if (task.recurUnit === 'week') additionSeconds = task.recurInterval * 86400 * 7;
-        else if (task.recurUnit === 'month') additionSeconds = task.recurInterval * 86400 * 30;
+        const unit = (task.recurUnit || '').toLowerCase().trim();
         
-        const newCreatedAt = Date.now();
-        const nextTaskId = Date.now().toString() + '-recur';
+        if (unit === 'second' || unit === 'seconds') additionSeconds = task.recurInterval;
+        else if (unit === 'minute' || unit === 'minutes') additionSeconds = task.recurInterval * 60;
+        else if (unit === 'hour' || unit === 'hours') additionSeconds = task.recurInterval * 3600;
+        else if (unit === 'day' || unit === 'days') additionSeconds = task.recurInterval * 86400;
+        else if (unit === 'week' || unit === 'weeks') additionSeconds = task.recurInterval * 86400 * 7;
+        else if (unit === 'month' || unit === 'months') additionSeconds = task.recurInterval * 86400 * 30;
+        
+        if (additionSeconds <= 0) {
+          console.error(`[Recurring] Aborting reschedule: invalid unit "${task.recurUnit}" or interval ${task.recurInterval}`);
+        } else {
+          const newCreatedAt = Date.now();
+          const nextTaskId = Date.now().toString() + '-recur';
 
-        const insertSql = `INSERT INTO tasks 
-          (id, userId, title, durationSeconds, priority, category, createdAt, completed, isRecurring, recurInterval, recurUnit) 
-          VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`;
-        
-        db.run(insertSql, [
-          nextTaskId, req.user.id, task.title, additionSeconds, task.priority, task.category, newCreatedAt, 
-          1, task.recurInterval, task.recurUnit
-        ], function(insertErr) {
-          if (!insertErr) {
-            db.get("SELECT * FROM tasks WHERE id = ?", [nextTaskId], (err, nextTask) => {
-              if (!err && nextTask) scheduleTaskTimer(nextTask);
-            });
-          }
-        });
+          const insertSql = `INSERT INTO tasks 
+            (id, userId, title, durationSeconds, priority, category, createdAt, completed, isRecurring, recurInterval, recurUnit, syncGoogle, syncNotion, syncTelegram, syncEmail, aiEnabled, autoSchedule, estimatedSeconds) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+          
+          db.run(insertSql, [
+            nextTaskId, req.user.id, task.title, additionSeconds, task.priority, task.category, newCreatedAt, 
+            1, task.recurInterval, task.recurUnit,
+            task.syncGoogle || 0, task.syncNotion || 0, task.syncTelegram || 0, task.syncEmail || 0,
+            task.aiEnabled || 0, task.autoSchedule || 0, task.estimatedSeconds || null
+          ], function(insertErr) {
+            if (insertErr) {
+              console.error(`[Recurring] Failed to create next occurrence for "${task.title}":`, insertErr.message);
+            } else {
+              console.log(`[Recurring] Created next occurrence "${task.title}" (ID: ${nextTaskId}) due in ${additionSeconds}s`);
+              db.get("SELECT * FROM tasks WHERE id = ?", [nextTaskId], (err, nextTask) => {
+                if (!err && nextTask) scheduleTaskTimer(nextTask);
+              });
+            }
+          });
+        }
       }
       
       res.json({ message: 'Task updated successfully' });
@@ -991,8 +1093,88 @@ app.put('/api/tasks/:id', checkAuth, (req, res) => {
   });
 });
 
+app.post('/api/tasks/:id/start', checkAuth, (req, res) => {
+  db.run(`UPDATE tasks SET breached = 0 WHERE id = ? AND userId = ?`, [req.params.id, req.user.id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+app.post('/api/tasks/:id/reschedule', checkAuth, (req, res) => {
+  const { hours, targetDate, reason } = req.body;
+  
+  db.get('SELECT bufferWall, durationSeconds, createdAt FROM tasks WHERE id = ? AND userId = ?', [req.params.id, req.user.id], (err, task) => {
+    if (err || !task) return res.status(404).json({ error: "Task not found" });
+    
+    let shiftMs = 0;
+    let newCreatedAt = task.createdAt;
+    
+    if (targetDate) {
+      const targetTime = new Date(targetDate).getTime();
+      shiftMs = targetTime - Date.now();
+      if (shiftMs < 0) shiftMs = 0;
+    } else {
+      shiftMs = (hours || 1) * 60 * 60 * 1000;
+    }
+    
+    const newBufferWall = task.bufferWall ? task.bufferWall + shiftMs : Date.now() + shiftMs;
+    newCreatedAt = task.createdAt + shiftMs;
+    
+    db.run(
+      `UPDATE tasks SET breached = 0, bufferWall = ?, createdAt = ?, modificationReason = ? WHERE id = ? AND userId = ?`, 
+      [newBufferWall, newCreatedAt, reason || 'User rescheduled', req.params.id, req.user.id], 
+      function(updateErr) {
+        if (updateErr) return res.status(500).json({ error: updateErr.message });
+        res.json({ success: true, targetDate: new Date(Date.now() + shiftMs).toISOString() });
+      }
+    );
+  });
+});
+
+app.get('/api/calendar/free-day', checkAuth, (req, res) => {
+  const next7Days = [];
+  const now = new Date();
+  for (let i = 1; i <= 7; i++) {
+    const d = new Date(now);
+    d.setDate(d.getDate() + i);
+    d.setHours(0, 0, 0, 0);
+    const startOfDay = d.getTime();
+    d.setHours(23, 59, 59, 999);
+    const endOfDay = d.getTime();
+    next7Days.push({ start: startOfDay, end: endOfDay, date: d });
+  }
+
+  const query = `
+    SELECT (createdAt + (durationSeconds * 1000)) as deadlineMs, durationSeconds
+    FROM tasks
+    WHERE userId = ? AND completed = 0
+  `;
+
+  db.all(query, [req.user.id], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    const loadPerDay = next7Days.map(day => {
+      const dayTasks = rows.filter(r => r.deadlineMs >= day.start && r.deadlineMs <= day.end);
+      const totalDuration = dayTasks.reduce((sum, task) => sum + task.durationSeconds, 0);
+      return { ...day, totalDuration };
+    });
+
+    let bestDay = loadPerDay[0];
+    for (let i = 1; i < loadPerDay.length; i++) {
+      if (loadPerDay[i].totalDuration < bestDay.totalDuration) {
+        bestDay = loadPerDay[i];
+      }
+    }
+
+    res.json({ 
+      freeDate: bestDay.date.toISOString(),
+      loadSeconds: bestDay.totalDuration
+    });
+  });
+});
+
 app.delete('/api/tasks/:id', checkAuth, (req, res) => {
-  const reason = req.query.reason || req.body.reason || 'No reason specified';
+  const reason = req.query.reason || (req.body && req.body.reason) || 'No reason specified';
   
   db.get('SELECT * FROM tasks WHERE id = ? AND userId = ?', [req.params.id, req.user.id], (err, task) => {
     if (!err && task) {
@@ -1016,7 +1198,7 @@ app.get('/api/tasks/export/ics', checkAuth, (req, res) => {
   db.all('SELECT * FROM tasks WHERE userId = ? AND completed = 0', [req.user.id], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     
-    let icsContent = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//LMLS//Last Minute Life Saver//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nX-WR-CALNAME:LMLS Tasks\r\n";
+    let icsContent = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//LMS//Last Minute Life Saver//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nX-WR-CALNAME:LMS Tasks\r\n";
     
     rows.forEach(task => {
       const date = new Date(task.createdAt + task.durationSeconds * 1000);
@@ -1030,12 +1212,12 @@ app.get('/api/tasks/export/ics', checkAuth, (req, res) => {
       const dtEnd = formatICSDate(new Date(date.getTime() + 1800000));
       
       icsContent += "BEGIN:VEVENT\r\n";
-      icsContent += `UID:task-${task.id}@lmls.io\r\n`;
+      icsContent += `UID:task-${task.id}@lms.io\r\n`;
       icsContent += `DTSTAMP:${dtStamp}\r\n`;
       icsContent += `DTSTART:${dtStart}\r\n`;
       icsContent += `DTEND:${dtEnd}\r\n`;
       icsContent += `SUMMARY:${task.title}\r\n`;
-      icsContent += `DESCRIPTION:LMLS Priority: ${task.priority}. Category: ${task.category}\r\n`;
+      icsContent += `DESCRIPTION:LMS Priority: ${task.priority}. Category: ${task.category}\r\n`;
       icsContent += `STATUS:CONFIRMED\r\n`;
       icsContent += `SEQUENCE:0\r\n`;
       icsContent += "END:VEVENT\r\n";
@@ -1044,7 +1226,7 @@ app.get('/api/tasks/export/ics', checkAuth, (req, res) => {
     icsContent += "END:VCALENDAR\r\n";
     
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
-    res.setHeader('Content-Disposition', 'attachment; filename=lmls-reminders.ics');
+    res.setHeader('Content-Disposition', 'attachment; filename=lms-reminders.ics');
     res.send(icsContent);
   });
 });
@@ -1195,7 +1377,66 @@ if (isProduction) {
   });
 }
 
-// Start server
+// Server-Sent Events (SSE) for Real-Time Notifications
+global.sseClients = [];
+
+app.get('/api/events', checkAuth, (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+  
+  const client = { userId: req.user.id, res };
+  global.sseClients.push(client);
+  
+  req.on('close', () => {
+    global.sseClients = global.sseClients.filter(c => c !== client);
+  });
+});
+
+function sendToUser(userId, data) {
+  global.sseClients.forEach(client => {
+    if (client.userId === userId) {
+      client.res.write(`data: ${JSON.stringify(data)}\n\n`);
+    }
+  });
+}
+
+// Background Cron Monitor for Breached Tasks (Runs every 60 seconds)
+setInterval(() => {
+  const now = Date.now();
+  const query = `
+    SELECT id, userId, title, bufferWall 
+    FROM tasks 
+    WHERE completed = 0 AND breached = 0 AND bufferWall IS NOT NULL AND ? >= bufferWall
+  `;
+  
+  db.all(query, [now], (err, rows) => {
+    if (err) {
+      console.error("[CRON ERROR]", err);
+      return;
+    }
+    
+    rows.forEach(task => {
+      // Mark as breached
+      db.run(`UPDATE tasks SET breached = 1 WHERE id = ?`, [task.id], (upErr) => {
+        if (!upErr) {
+          console.log(`[BUFFER WALL BREACHED] Task: ${task.title} (ID: ${task.id})`);
+          // Notify the client in real-time
+          sendToUser(task.userId, {
+            type: 'BUFFER_BREACH',
+            taskId: task.id,
+            title: task.title
+          });
+        }
+      });
+    });
+  });
+}, 60000);
+
+// Global SSE export
+global.sendToUser = sendToUser;
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Backend API Server running on port ${PORT}`);
 });

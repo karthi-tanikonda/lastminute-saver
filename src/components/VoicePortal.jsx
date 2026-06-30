@@ -26,6 +26,8 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
   const [editRecurInterval, setEditRecurInterval] = useState(1);
   const [editRecurUnit, setEditRecurUnit] = useState('days');
   const [editAiEnabled, setEditAiEnabled] = useState(false);
+  const [editAutoSchedule, setEditAutoSchedule] = useState(false);
+  const [editEstimatedSeconds, setEditEstimatedSeconds] = useState(null);
   
   // Pending action for postpone/prepone/cancel tasks reason collection
   const [pendingAction, setPendingAction] = useState(null);
@@ -69,7 +71,7 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
 
   const draftStateRef = useRef({ 
     title: '', durationSeconds: 60, syncGoogle: false, syncNotion: false, syncTelegram: false, syncEmail: false, 
-    priority: 'Medium', category: 'Personal', isRecurring: false, recurInterval: 1, recurUnit: 'days', aiEnabled: false 
+    priority: 'Medium', category: 'Personal', isRecurring: false, recurInterval: 1, recurUnit: 'days', aiEnabled: false, autoSchedule: false, estimatedSeconds: null
   });
 
   useEffect(() => {
@@ -77,9 +79,9 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
     draftStateRef.current = { 
       title: editTitle, durationSeconds: editDuration, syncGoogle, syncNotion, syncTelegram, syncEmail, 
       priority: editPriority, category: editCategory,
-      isRecurring: editIsRecurring, recurInterval: editRecurInterval, recurUnit: editRecurUnit, aiEnabled: editAiEnabled
+      isRecurring: editIsRecurring, recurInterval: editRecurInterval, recurUnit: editRecurUnit, aiEnabled: editAiEnabled, autoSchedule: editAutoSchedule, estimatedSeconds: editEstimatedSeconds
     };
-  }, [isReviewing, editTitle, editDuration, syncGoogle, syncNotion, syncTelegram, syncEmail, editPriority, editCategory, editIsRecurring, editRecurInterval, editRecurUnit, editAiEnabled]);
+  }, [isReviewing, editTitle, editDuration, syncGoogle, syncNotion, syncTelegram, syncEmail, editPriority, editCategory, editIsRecurring, editRecurInterval, editRecurUnit, editAiEnabled, editAutoSchedule, editEstimatedSeconds]);
 
   const formatLocalISO = (date) => {
     const tzoffset = date.getTimezoneOffset() * 60000;
@@ -336,6 +338,8 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
               if (params.recurInterval !== undefined) setEditRecurInterval(params.recurInterval);
               if (params.recurUnit !== undefined) setEditRecurUnit(params.recurUnit);
               if (params.aiEnabled !== undefined) setEditAiEnabled(Boolean(params.aiEnabled));
+              if (params.autoSchedule !== undefined) setEditAutoSchedule(Boolean(params.autoSchedule));
+              if (params.estimatedSeconds !== undefined) setEditEstimatedSeconds(params.estimatedSeconds);
               
               setSyncGoogle(Boolean(userProfile.googleConnected));
               setSyncNotion(Boolean(userProfile.notionConnected));
@@ -345,7 +349,7 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
               setIsReviewing(true);
               // Status updates — mic will auto-restart via the isReviewing useEffect
               setStatus('Processing...');
-              speakTaskCaptured(params.title, userProfile, false);
+              speakText(speechResponse, userProfile, () => { try { rec.start(); } catch (err) {} });
             } else if (action === 'update_draft') {
               if (params.title) setEditTitle(params.title);
               if (params.targetTimeISO) {
@@ -368,6 +372,8 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
               if (params.syncNotion !== undefined) setSyncNotion(params.syncNotion);
               if (params.syncTelegram !== undefined) setSyncTelegram(params.syncTelegram);
               if (params.syncEmail !== undefined) setSyncEmail(params.syncEmail);
+              if (params.autoSchedule !== undefined) setEditAutoSchedule(params.autoSchedule);
+              if (params.estimatedSeconds !== undefined) setEditEstimatedSeconds(params.estimatedSeconds);
               
               speakText(speechResponse, userProfile, () => { try { rec.start(); } catch (err) {} });
             } else if (action === 'confirm_draft') {
@@ -377,7 +383,8 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
                   title: finalDraft.title, durationSeconds: finalDraft.durationSeconds, priority: finalDraft.priority,
                   category: finalDraft.category, syncGoogle: finalDraft.syncGoogle, syncNotion: finalDraft.syncNotion,
                   syncTelegram: finalDraft.syncTelegram, syncEmail: finalDraft.syncEmail, isRecurring: finalDraft.isRecurring,
-                  recurInterval: finalDraft.recurInterval, recurUnit: finalDraft.recurUnit, aiEnabled: finalDraft.aiEnabled
+                  recurInterval: finalDraft.recurInterval, recurUnit: finalDraft.recurUnit, aiEnabled: finalDraft.aiEnabled,
+                  autoSchedule: finalDraft.autoSchedule, estimatedSeconds: finalDraft.estimatedSeconds
                 });
                 speakTaskCaptured(finalDraft.title, userProfile, false);
                 setIsReviewing(false);
@@ -388,8 +395,8 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
             } else if (action === 'navigate') {
               speakText(speechResponse, userProfile, () => { try { rec.start(); } catch (err) {} });
               window.dispatchEvent(new CustomEvent('laila_navigate', { detail: params.destination }));
-            } else if (action === 'toggle_theme') {
-              if (toggleTheme) toggleTheme();
+            } else if (action === 'toggle_theme' || action === 'change_theme') {
+              if (toggleTheme) toggleTheme(params.mode);
               speakText(speechResponse, userProfile, () => { try { rec.start(); } catch (err) {} });
             } else if (action === 'modify_existing_task') {
               try {
@@ -664,7 +671,7 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
           { width: 90, blur: 24, opacity: 0.12 },
           { width: 45, blur: 12, opacity: 0.25 },
           { width: 18, blur: 5,  opacity: 0.55 },
-          { width: 3,  blur: 0.5,opacity: 0.95 }
+          { width: 3,  blur: 0.5, opacity: 0.95 }
         ];
 
         layers.forEach(layer => {
@@ -673,7 +680,7 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
           ctx.globalAlpha = (layer.opacity + volume * (layer.opacity * 0.3)) * (0.85 + volume * 0.15);
           ctx.stroke();
         });
-        
+
         ctx.filter = 'none';
         ctx.globalAlpha = 1.0;
       }
@@ -698,7 +705,8 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
       priority: editPriority,
       category: editCategory,
       syncGoogle, syncNotion, syncTelegram, syncEmail,
-      isRecurring: editIsRecurring, recurInterval: editRecurInterval, recurUnit: editRecurUnit, aiEnabled: editAiEnabled
+      isRecurring: editIsRecurring, recurInterval: editRecurInterval, recurUnit: editRecurUnit, aiEnabled: editAiEnabled,
+      autoSchedule: editAutoSchedule, estimatedSeconds: editEstimatedSeconds
     });
     speakTaskCaptured(editTitle, userProfile, false);
     resetPortal();
@@ -711,9 +719,9 @@ export default function VoicePortal({ isVoiceActive, setIsVoiceActive, onAddTask
         (isLangDropdownOpen || isCalendarOpen) ? 'overflow-visible' : 'overflow-hidden'
       } ${
         isReviewing 
-          ? `h-[560px] ${isVoiceActive ? 'border-transparent shadow-[0_0_30px_rgba(0,207,207,0.15)]' : 'border-[#00CFCF]/40 dark:border-[#00CFCF]/30'}` 
+          ? `h-[85vh] sm:h-[560px] max-h-[600px] min-h-[450px] ${isVoiceActive ? 'border-transparent shadow-[0_0_30px_rgba(0,207,207,0.15)]' : 'border-[#00CFCF]/40 dark:border-[#00CFCF]/30'}` 
           : isVoiceActive
-            ? 'border-transparent h-[380px] shadow-[0_0_30px_rgba(0,207,207,0.15)]' 
+            ? 'border-transparent h-[60vh] sm:h-[380px] max-h-[400px] min-h-[300px] shadow-[0_0_30px_rgba(0,207,207,0.15)]' 
             : 'border-neutral-250 dark:border-[#00CFCF]/20 h-[240px] hover:border-neutral-350 dark:hover:border-[#00CFCF]/40'
       }`}
     >
